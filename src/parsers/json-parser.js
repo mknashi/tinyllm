@@ -96,7 +96,38 @@ export class JSONParser {
       fixes.push(`Added ${openBrackets - closeBrackets} missing closing bracket(s)`);
     }
 
-    // Fix 7: Fix NaN, Infinity, undefined
+    // Fix 8: Fix missing opening brace
+    // Detect if JSON starts with a key-value pair but missing opening brace
+    const trimmed = fixed.trim();
+    if (trimmed.match(/^"[^"]+"\s*:\s*.+}$/s)) {
+      fixed = '{' + fixed;
+      fixes.push('Added missing opening brace');
+    }
+
+    // Fix 9: Fix numbers with leading zeros
+    // Invalid: {"value": 01} -> Valid: {"value": 1}
+    const leadingZeroRegex = /:\s*0([0-9]+)/g;
+    const beforeLeadingZeroFix = fixed;
+    fixed = fixed.replace(leadingZeroRegex, ': $1');
+    if (fixed !== beforeLeadingZeroFix) {
+      fixes.push('Fixed numbers with leading zeros');
+    }
+
+    // Fix 10: Fix unescaped backslashes in strings
+    // Only fix obvious cases like paths: C:\Users -> C:\\Users
+    // This regex looks for backslashes followed by common path characters
+    const unescapedBackslashRegex = /"([^"]*\\(?!["\\/bfnrtu]))/g;
+    const beforeBackslashFix = fixed;
+    fixed = fixed.replace(unescapedBackslashRegex, (match, content) => {
+      // Escape single backslashes that aren't already part of escape sequences
+      const escaped = '"' + content.replace(/\\/g, '\\\\');
+      return escaped;
+    });
+    if (fixed !== beforeBackslashFix) {
+      fixes.push('Fixed unescaped backslashes');
+    }
+
+    // Fix 11: Fix NaN, Infinity, undefined
     fixed = fixed.replace(/:\s*NaN/g, ': null');
     fixed = fixed.replace(/:\s*Infinity/g, ': null');
     fixed = fixed.replace(/:\s*undefined/g, ': null');

@@ -50,10 +50,19 @@ export class XMLParser {
   _validateXMLStructure(xmlString) {
     const errors = [];
     const tagStack = [];
-    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-_]*)[^>]*>/g;
+
+    // Remove processing instructions, comments, and CDATA sections before parsing
+    // This prevents them from being mistaken for tags
+    let cleanXml = xmlString
+      .replace(/<\?[^?]*\?>/g, '') // Remove processing instructions (<?xml ...?>)
+      .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
+      .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ''); // Remove CDATA sections
+
+    // Updated regex to support namespaces (colons in tag names)
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:_-]*)[^>]*>/g;
 
     let match;
-    while ((match = tagRegex.exec(xmlString)) !== null) {
+    while ((match = tagRegex.exec(cleanXml)) !== null) {
       const fullTag = match[0];
       const tagName = match[1];
 
@@ -135,12 +144,13 @@ export class XMLParser {
       fixes.push('Added quotes to unquoted attributes');
     }
 
-    // Fix 5: Remove invalid characters in tag names
-    const invalidTagRegex = /<\/?([^a-zA-Z][a-zA-Z0-9-_]*)/g;
+    // Fix 5: Fix invalid tag names (starting with numbers or special chars)
+    // Only match opening tags that start with invalid characters
+    // This regex specifically looks for tags like <1name> or <_name> but not </name> or <?xml>
+    const invalidTagRegex = /<([0-9][a-zA-Z0-9-_]*)/g;
     const beforeTagFix = fixed;
     fixed = fixed.replace(invalidTagRegex, (match, tagName) => {
-      const validTag = tagName.replace(/^[^a-zA-Z]+/, 'tag');
-      return match.replace(tagName, validTag);
+      return `<tag${tagName}`;
     });
     if (fixed !== beforeTagFix) {
       fixes.push('Fixed invalid tag names');
@@ -268,10 +278,18 @@ export class XMLParser {
   _fixUnclosedTags(xmlString) {
     const tagStack = [];
     const unclosedTags = [];
-    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-_]*)[^>]*>/g;
+
+    // Remove processing instructions, comments, and CDATA sections before parsing
+    let cleanXml = xmlString
+      .replace(/<\?[^?]*\?>/g, '') // Remove processing instructions
+      .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
+      .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ''); // Remove CDATA sections
+
+    // Updated regex to support namespaces (colons in tag names)
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:_-]*)[^>]*>/g;
 
     let match;
-    while ((match = tagRegex.exec(xmlString)) !== null) {
+    while ((match = tagRegex.exec(cleanXml)) !== null) {
       const fullTag = match[0];
       const tagName = match[1];
 
@@ -316,11 +334,19 @@ export class XMLParser {
     const tagStack = [];
     const fixes = [];
     let balanced = xmlString;
-    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9-_]*)[^>]*>/g;
+
+    // Remove processing instructions, comments, and CDATA sections before parsing
+    let cleanXml = xmlString
+      .replace(/<\?[^?]*\?>/g, '') // Remove processing instructions
+      .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
+      .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ''); // Remove CDATA sections
+
+    // Updated regex to support namespaces (colons in tag names)
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:_-]*)[^>]*>/g;
 
     const matches = [];
     let match;
-    while ((match = tagRegex.exec(xmlString)) !== null) {
+    while ((match = tagRegex.exec(cleanXml)) !== null) {
       matches.push({
         fullTag: match[0],
         tagName: match[1],
