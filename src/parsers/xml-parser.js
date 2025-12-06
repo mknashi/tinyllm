@@ -122,21 +122,28 @@ export class XMLParser {
       fixes.push('Added XML declaration');
     }
 
-    // Fix 2: Fix unclosed tags
+    // Fix 2: Fix mismatched closing tag names (do this BEFORE fixing unclosed tags)
+    const mismatchResultEarly = this._fixMismatchedTags(fixed);
+    if (mismatchResultEarly.fixes.length > 0) {
+      fixed = mismatchResultEarly.xml;
+      fixes.push(...mismatchResultEarly.fixes);
+    }
+
+    // Fix 3: Fix unclosed tags (after mismatched tags are corrected)
     const { unclosedTags, fixedXml } = this._fixUnclosedTags(fixed);
     if (unclosedTags.length > 0) {
       fixed = fixedXml;
       fixes.push(`Fixed ${unclosedTags.length} unclosed tag(s): ${unclosedTags.join(', ')}`);
     }
 
-    // Fix 3: Fix unescaped special characters
+    // Fix 4: Fix unescaped special characters
     const beforeEscape = fixed;
     fixed = this._escapeSpecialChars(fixed);
     if (fixed !== beforeEscape) {
       fixes.push('Escaped special characters in text content');
     }
 
-    // Fix 4: Fix attribute quotes
+    // Fix 5: Fix attribute quotes
     const attrRegex = /(<[^>]+\s+)([a-zA-Z-]+)=([^"\s>]+)(?=[\s>])/g;
     const beforeAttrFix = fixed;
     fixed = fixed.replace(attrRegex, '$1$2="$3"');
@@ -144,7 +151,7 @@ export class XMLParser {
       fixes.push('Added quotes to unquoted attributes');
     }
 
-    // Fix 5: Fix invalid tag names (starting with numbers or special chars)
+    // Fix 6: Fix invalid tag names (starting with numbers or special chars)
     // Only match opening tags that start with invalid characters
     // This regex specifically looks for tags like <1name> or <_name> but not </name> or <?xml>
     const invalidTagRegex = /<([0-9][a-zA-Z0-9-_]*)/g;
@@ -156,7 +163,7 @@ export class XMLParser {
       fixes.push('Fixed invalid tag names');
     }
 
-    // Fix 6: Balance mismatched tags
+    // Fix 7: Balance mismatched tags
     const balancedResult = this._balanceTags(fixed);
     if (balancedResult.fixes.length > 0) {
       fixed = balancedResult.xml;
@@ -325,6 +332,116 @@ export class XMLParser {
         .replace(/>/g, '&gt;');
       return `>${escaped}<`;
     });
+  }
+
+  /**
+   * Fix mismatched closing tag names
+   * For example: <product>...</product1> becomes <product>...</product>
+   */
+  _fixMismatchedTags(xmlString) {
+    const tagStack = [];
+    const fixes = [];
+    const replacements = [];
+
+    // Track all tags with their positions
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:_-]*)[^>]*>/g;
+    let match;
+    while ((match = tagRegex.exec(xmlString)) !== null) {
+      const fullTag = match[0];
+      const tagName = match[1];
+      const position = match.index;
+      const isClosing = fullTag.startsWith('</');
+      const isSelfClosing = fullTag.endsWith('/>');
+
+      // Skip processing instructions, comments, CDATA
+      if (tagName.startsWith('?') || tagName.startsWith('!')) {
+        continue;
+      }
+
+      if (isClosing) {
+        if (tagStack.length > 0) {
+          const expected = tagStack[tagStack.length - 1];
+
+          // Check if closing tag doesn't match expected tag
+          if (expected.name !== tagName) {
+            // Check if it's a similar tag (common typos)
+            if (this._isSimilarTag(expected.name, tagName)) {
+              // Auto-correct the closing tag
+              replacements.push({
+                position: position,
+                oldTag: fullTag,
+                newTag: `</${expected.name}>`,
+                original: tagName,
+                corrected: expected.name
+              });
+              tagStack.pop();
+              fixes.push(`Fixed mismatched tag: </${tagName}> → </${expected.name}>`);
+            }
+          } else {
+            tagStack.pop();
+          }
+        }
+      } else if (!isSelfClosing) {
+        tagStack.push({ name: tagName, position: position });
+      }
+    }
+
+    // Apply replacements in reverse order to maintain positions
+    let result = xmlString;
+    for (let i = replacements.length - 1; i >= 0; i--) {
+      const rep = replacements[i];
+      result = result.substring(0, rep.position) +
+               rep.newTag +
+               result.substring(rep.position + rep.oldTag.length);
+    }
+
+    return { xml: result, fixes };
+  }
+
+  /**
+   * Check if two tag names are similar (likely typos)
+   * Examples: product/product1, item/items, div/dvi
+   */
+  _isSimilarTag(expected, actual) {
+    // Exact match (shouldn't happen, but just in case)
+    if (expected === actual) return true;
+
+    // Check if one is a prefix of the other (product vs product1)
+    if (expected.startsWith(actual) || actual.startsWith(expected)) {
+      return true;
+    }
+
+    // Check edit distance (Levenshtein distance <= 2)
+    const distance = this._levenshteinDistance(expected, actual);
+    return distance <= 2;
+  }
+
+  /**
+   * Calculate Levenshtein distance between two strings
+   */
+  _levenshteinDistance(str1, str2) {
+    const m = str1.length;
+    const n = str2.length;
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (str1[i - 1] === str2[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1];
+        } else {
+          dp[i][j] = Math.min(
+            dp[i - 1][j] + 1,    // deletion
+            dp[i][j - 1] + 1,    // insertion
+            dp[i - 1][j - 1] + 1 // substitution
+          );
+        }
+      }
+    }
+
+    return dp[m][n];
   }
 
   /**
