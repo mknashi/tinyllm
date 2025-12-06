@@ -16,10 +16,35 @@
     "parser",
     "lightweight",
     "browser",
-    "mobile"
+    "mobile",
+    "xml-parser",
+    "json-parser",
+    "json-fixer",
+    "xml-fixer"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mknashi/tinyllm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mknashi/tinyllm/issues"
+  },
+  "homepage": "https://github.com/mknashi/tinyllm#readme",
   "author": "",
   "license": "MIT",
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./src/index.js",
+    "./parsers/json": "./src/parsers/json-parser.js",
+    "./parsers/xml": "./src/parsers/xml-parser.js",
+    "./model": "./src/model/nano-transformer.js",
+    "./tokenizer": "./src/utils/tokenizer.js",
+    "./engine": "./src/inference/engine.js"
+  },
   "devDependencies": {},
   "dependencies": {}
 }
