@@ -65,14 +65,21 @@ export class JSONParser {
       fixes.push('Quoted unquoted keys');
     }
 
-    // Fix 5: Add missing commas between properties (improved algorithm)
+    // Fix 5: Fix unclosed strings (missing closing quotes)
+    const beforeStringFix = fixed;
+    fixed = this._fixUnclosedStrings(fixed);
+    if (fixed !== beforeStringFix) {
+      fixes.push('Fixed unclosed strings');
+    }
+
+    // Fix 6: Add missing commas between properties (improved algorithm)
     const beforeCommaFix = fixed;
     fixed = this._addMissingCommas(fixed);
     if (fixed !== beforeCommaFix) {
       fixes.push('Added missing commas between properties');
     }
 
-    // Fix 6: Fix missing closing braces/brackets
+    // Fix 7: Fix missing closing braces/brackets
     const openBraces = (fixed.match(/{/g) || []).length;
     const closeBraces = (fixed.match(/}/g) || []).length;
     const openBrackets = (fixed.match(/\[/g) || []).length;
@@ -204,6 +211,81 @@ export class JSONParser {
     }
 
     result += pendingWhitespace;
+    return result;
+  }
+
+  /**
+   * Fix unclosed strings by adding missing closing quotes
+   */
+  _fixUnclosedStrings(jsonString) {
+    let result = '';
+    let inString = false;
+    let escapeNext = false;
+    let stringStart = -1;
+
+    for (let i = 0; i < jsonString.length; i++) {
+      const char = jsonString[i];
+
+      // Handle escape sequences
+      if (escapeNext) {
+        result += char;
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\' && inString) {
+        escapeNext = true;
+        result += char;
+        continue;
+      }
+
+      // Track string boundaries
+      if (char === '"') {
+        if (!inString) {
+          // Starting a string
+          inString = true;
+          stringStart = i;
+          result += char;
+        } else {
+          // Ending a string
+          inString = false;
+          stringStart = -1;
+          result += char;
+        }
+        continue;
+      }
+
+      // If we're in a string and hit a newline or structural character, close the string
+      if (inString && (char === '\n' || char === '\r')) {
+        // Unclosed string detected - add closing quote before newline
+        result += '"';
+        inString = false;
+        stringStart = -1;
+        result += char;
+        continue;
+      }
+
+      // If we hit a comma or closing brace/bracket while in a string, close it
+      if (inString && (char === ',' || char === '}' || char === ']')) {
+        // Check if this looks like it should end the string
+        // (i.e., we've gone past where a string should reasonably end)
+        const currentStringLength = i - stringStart;
+        if (currentStringLength > 200 || char === '\n') {
+          // Likely an unclosed string - close it before this character
+          result += '"';
+          inString = false;
+          stringStart = -1;
+        }
+      }
+
+      result += char;
+    }
+
+    // If still in string at end, close it
+    if (inString) {
+      result += '"';
+    }
+
     return result;
   }
 
