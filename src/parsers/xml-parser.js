@@ -411,43 +411,88 @@ export class XMLParser {
   }
 
   /**
-   * Fix unclosed tags
+   * Fix unclosed tags with position-aware insertion
    */
   _fixUnclosedTags(xmlString) {
     const tagStack = [];
-    const unclosedTags = [];
+    const insertions = []; // Track where to insert closing tags
 
-    // Remove processing instructions, comments, and CDATA sections before parsing
-    let cleanXml = xmlString
-      .replace(/<\?[^?]*\?>/g, '') // Remove processing instructions
-      .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
-      .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, ''); // Remove CDATA sections
-
-    // Updated regex to support namespaces (colons in tag names)
+    // Track tag positions in original XML
     const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:_-]*)[^>]*>/g;
-
+    const tags = [];
     let match;
-    while ((match = tagRegex.exec(cleanXml)) !== null) {
+
+    while ((match = tagRegex.exec(xmlString)) !== null) {
       const fullTag = match[0];
       const tagName = match[1];
+      const position = match.index;
 
-      if (fullTag.startsWith('</')) {
-        if (tagStack.length > 0 && tagStack[tagStack.length - 1] === tagName) {
-          tagStack.pop();
+      // Skip processing instructions, comments, CDATA
+      if (tagName.match(/^[?!]/)) continue;
+
+      tags.push({
+        name: tagName,
+        fullTag: fullTag,
+        position: position,
+        isClosing: fullTag.startsWith('</'),
+        isSelfClosing: fullTag.endsWith('/>')
+      });
+    }
+
+    // Process tags to find unclosed ones and where to insert closings
+    for (let i = 0; i < tags.length; i++) {
+      const tag = tags[i];
+
+      if (tag.isClosing) {
+        if (tagStack.length > 0) {
+          const topTag = tagStack[tagStack.length - 1];
+
+          if (topTag.name === tag.name) {
+            // Matching closing tag
+            tagStack.pop();
+          } else {
+            // Mismatched - need to close all open tags up to this one
+            const indexInStack = tagStack.map(t => t.name).lastIndexOf(tag.name);
+
+            if (indexInStack >= 0) {
+              // Close all tags from top of stack down to the matching tag
+              while (tagStack.length > indexInStack) {
+                const unclosed = tagStack.pop();
+                insertions.push({
+                  position: tag.position,
+                  tag: `</${unclosed.name}>`
+                });
+              }
+              tagStack.pop(); // Remove the matching tag
+            }
+          }
         }
-      } else if (!fullTag.endsWith('/>')) {
-        tagStack.push(tagName);
+      } else if (!tag.isSelfClosing) {
+        tagStack.push({ name: tag.name, position: tag.position });
       }
     }
 
-    let fixedXml = xmlString;
+    // Add any remaining unclosed tags at the end
     if (tagStack.length > 0) {
-      // Add closing tags in reverse order
-      const closingTags = tagStack.reverse().map(tag => `</${tag}>`).join('\n');
-      fixedXml = xmlString.trim() + '\n' + closingTags;
-      unclosedTags.push(...tagStack);
+      const endPosition = xmlString.length;
+      tagStack.reverse().forEach(tag => {
+        insertions.push({
+          position: endPosition,
+          tag: `</${tag.name}>`
+        });
+      });
     }
 
+    // Apply insertions in reverse order to maintain positions
+    let fixedXml = xmlString;
+    insertions.sort((a, b) => b.position - a.position);
+    insertions.forEach(insertion => {
+      fixedXml = fixedXml.substring(0, insertion.position) +
+                 insertion.tag + '\n' +
+                 fixedXml.substring(insertion.position);
+    });
+
+    const unclosedTags = insertions.map(ins => ins.tag.match(/<\/(.*)>/)[1]);
     return { unclosedTags, fixedXml };
   }
 
@@ -577,20 +622,33 @@ export class XMLParser {
 
   /**
    * Check if two tag names are similar (likely typos)
-   * Examples: product/product1, item/items, div/dvi
+   * Examples: product/product1, item/item1, div/dvi
+   * NOT similar: feature/features (plural), item/items (different semantics)
    */
   _isSimilarTag(expected, actual) {
     // Exact match (shouldn't happen, but just in case)
     if (expected === actual) return true;
 
-    // Check if one is a prefix of the other (product vs product1)
-    if (expected.startsWith(actual) || actual.startsWith(expected)) {
+    // Don't auto-fix plural vs singular (feature vs features)
+    // This is likely a structural error, not a typo
+    if (expected + 's' === actual || expected === actual + 's') {
+      return false;
+    }
+
+    // Check if one is a prefix with numbers/special chars appended (product vs product1)
+    const prefixPattern = new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[0-9]+$`);
+    if (prefixPattern.test(actual)) {
       return true;
     }
 
-    // Check edit distance (Levenshtein distance <= 2)
+    const reversePrefixPattern = new RegExp(`^${actual.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[0-9]+$`);
+    if (reversePrefixPattern.test(expected)) {
+      return true;
+    }
+
+    // Check edit distance for single character typos only (Levenshtein distance <= 1)
     const distance = this._levenshteinDistance(expected, actual);
-    return distance <= 2;
+    return distance <= 1;
   }
 
   /**
