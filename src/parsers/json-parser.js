@@ -43,33 +43,34 @@ export class JSONParser {
       fixes.push('Converted single quotes to double quotes');
     }
 
-    // Fix 2: Remove comments (// and /* */) - but not in strings!
+    // Fix 2: Fix unclosed strings (missing closing quotes)
+    // IMPORTANT: Must run BEFORE comment removal to avoid treating // in URLs as comments
+    const beforeStringFix = fixed;
+    fixed = this._fixUnclosedStrings(fixed);
+    if (fixed !== beforeStringFix) {
+      fixes.push('Fixed unclosed strings');
+    }
+
+    // Fix 3: Remove comments (// and /* */) - but not in strings!
     const beforeCommentFix = fixed;
     fixed = this._removeComments(fixed);
     if (fixed !== beforeCommentFix) {
       fixes.push('Removed comments');
     }
 
-    // Fix 3: Remove trailing commas
+    // Fix 4: Remove trailing commas
     const trailingCommaRegex = /,(\s*[}\]])/g;
     if (trailingCommaRegex.test(fixed)) {
       fixed = fixed.replace(trailingCommaRegex, '$1');
       fixes.push('Removed trailing commas');
     }
 
-    // Fix 4: Fix unquoted keys
+    // Fix 5: Fix unquoted keys
     const unquotedKeyRegex = /([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*:)/g;
     const beforeKeyFix = fixed;
     fixed = fixed.replace(unquotedKeyRegex, '$1"$2"$3');
     if (fixed !== beforeKeyFix) {
       fixes.push('Quoted unquoted keys');
-    }
-
-    // Fix 5: Fix unclosed strings (missing closing quotes)
-    const beforeStringFix = fixed;
-    fixed = this._fixUnclosedStrings(fixed);
-    if (fixed !== beforeStringFix) {
-      fixes.push('Fixed unclosed strings');
     }
 
     // Fix 6: Add missing commas between properties (improved algorithm)
