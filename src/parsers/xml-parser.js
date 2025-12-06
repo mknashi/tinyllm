@@ -116,6 +116,19 @@ export class XMLParser {
     let fixed = xmlString;
     const fixes = [];
 
+    // Pre-validation: Check for critical unfixable errors
+    const criticalErrors = this._detectCriticalErrors(xmlString);
+    if (criticalErrors.length > 0) {
+      return {
+        success: false,
+        fixed: xmlString,
+        original: xmlString,
+        fixes: [],
+        data: null,
+        errors: criticalErrors,
+      };
+    }
+
     // Fix 1: Add XML declaration if missing
     if (!fixed.trim().startsWith('<?xml')) {
       fixed = '<?xml version="1.0" encoding="UTF-8"?>\n' + fixed;
@@ -152,13 +165,21 @@ export class XMLParser {
     }
 
     // Fix 6: Fix invalid tag names (starting with numbers or special chars)
-    // Only match opening tags that start with invalid characters
-    // This regex specifically looks for tags like <1name> or <_name> but not </name> or <?xml>
-    const invalidTagRegex = /<([0-9][a-zA-Z0-9-_]*)/g;
+    // Match both opening and closing tags that start with numbers
+    const invalidOpenTagRegex = /<([0-9][a-zA-Z0-9-_]*)/g;
+    const invalidCloseTagRegex = /<\/([0-9][a-zA-Z0-9-_]*)/g;
     const beforeTagFix = fixed;
-    fixed = fixed.replace(invalidTagRegex, (match, tagName) => {
+
+    // Fix opening tags: <1root> → <tag1root>
+    fixed = fixed.replace(invalidOpenTagRegex, (match, tagName) => {
       return `<tag${tagName}`;
     });
+
+    // Fix closing tags: </1root> → </tag1root>
+    fixed = fixed.replace(invalidCloseTagRegex, (match, tagName) => {
+      return `</tag${tagName}`;
+    });
+
     if (fixed !== beforeTagFix) {
       fixes.push('Fixed invalid tag names');
     }
@@ -280,6 +301,108 @@ export class XMLParser {
   }
 
   /**
+   * Detect critical errors that cannot be auto-fixed
+   */
+  _detectCriticalErrors(xmlString) {
+    const errors = [];
+    const trimmed = xmlString.trim();
+
+    // Remove XML declaration for analysis
+    const withoutDecl = trimmed.replace(/^<\?xml[^?]*\?>\s*/, '');
+
+    // 1. Check for tags with spaces in names (invalid syntax)
+    if (/<[a-zA-Z][a-zA-Z0-9-_]*\s+[a-zA-Z][a-zA-Z0-9-_]*/.test(withoutDecl) &&
+        !/=/.test(withoutDecl.match(/<[a-zA-Z][a-zA-Z0-9-_]*\s+[a-zA-Z][a-zA-Z0-9-_]*/)[0])) {
+      errors.push({
+        type: 'invalid_tag_name',
+        message: 'Tag names cannot contain spaces',
+      });
+    }
+
+    // 2. Check for unclosed attribute quotes
+    if (/<[^>]+="[^">]*>/.test(withoutDecl) || /<[^>]+='[^'>]*>/.test(withoutDecl)) {
+      errors.push({
+        type: 'unclosed_attribute_quote',
+        message: 'Unclosed attribute quote detected',
+      });
+    }
+
+    // 3. Check for attributes without equals sign
+    if (/<[^>]+\s+[a-zA-Z-]+\s+"[^"]*"/.test(withoutDecl)) {
+      errors.push({
+        type: 'missing_equals',
+        message: 'Attribute missing equals sign',
+      });
+    }
+
+    // 4. Check for text before root element
+    const firstTagMatch = withoutDecl.match(/<([a-zA-Z][a-zA-Z0-9:_-]*)/);
+    if (firstTagMatch) {
+      const beforeFirstTag = withoutDecl.substring(0, firstTagMatch.index).trim();
+      // Allow processing instructions and comments, but not regular text
+      const withoutAllowed = beforeFirstTag
+        .replace(/<\?[^?]*\?>/g, '')
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .trim();
+      if (withoutAllowed.length > 0) {
+        errors.push({
+          type: 'text_before_root',
+          message: 'Text content before root element',
+        });
+      }
+    }
+
+    // 5. Check for multiple root elements
+    // Remove comments, PIs, CDATA
+    const cleaned = withoutDecl
+      .replace(/<\?[^?]*\?>/g, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '');
+
+    const rootTagRegex = /^<([a-zA-Z][a-zA-Z0-9:_-]*)/g;
+    const rootMatches = [];
+    let depth = 0;
+    const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:_-]*)[^>]*>/g;
+    let match;
+
+    while ((match = tagRegex.exec(cleaned)) !== null) {
+      const fullTag = match[0];
+      const isClosing = fullTag.startsWith('</');
+      const isSelfClosing = fullTag.endsWith('/>');
+
+      if (!isClosing && !isSelfClosing) {
+        if (depth === 0) {
+          rootMatches.push(match[1]);
+        }
+        depth++;
+      } else if (isClosing) {
+        depth--;
+      }
+    }
+
+    if (rootMatches.length > 1) {
+      errors.push({
+        type: 'multiple_roots',
+        message: `Multiple root elements detected: ${rootMatches.join(', ')}`,
+      });
+    }
+
+    // 6. Check for missing opening tag (starts with closing tag or just value)
+    const startsWithClosing = /^\s*<\//.test(withoutDecl);
+    // Allow tags starting with numbers (will be fixed later)
+    const hasNoOpeningTag = !/<[a-zA-Z0-9]/.test(withoutDecl) && /<\//.test(withoutDecl);
+
+    if (startsWithClosing || hasNoOpeningTag) {
+      errors.push({
+        type: 'missing_opening_tag',
+        message: 'Missing opening tag',
+      });
+    }
+
+    return errors;
+  }
+
+  /**
    * Fix unclosed tags
    */
   _fixUnclosedTags(xmlString) {
@@ -324,14 +447,37 @@ export class XMLParser {
    * Escape special characters in text content
    */
   _escapeSpecialChars(xmlString) {
-    // Only escape in text content, not in tags
-    return xmlString.replace(/>([^<]*)</g, (match, text) => {
+    // Preserve CDATA sections
+    const cdataRegex = /<!\[CDATA\[([\s\S]*?)\]\]>/g;
+    const cdataSections = [];
+    let cdataIndex = 0;
+
+    // Temporarily replace CDATA sections with placeholders
+    let withoutCdata = xmlString.replace(cdataRegex, (match) => {
+      cdataSections.push(match);
+      return `__CDATA_PLACEHOLDER_${cdataIndex++}__`;
+    });
+
+    // Only escape in text content, not in tags or CDATA
+    withoutCdata = withoutCdata.replace(/>([^<]*)</g, (match, text) => {
+      // Skip if this is a CDATA placeholder
+      if (text.includes('__CDATA_PLACEHOLDER_')) {
+        return match;
+      }
+
       const escaped = text
         .replace(/&(?!(amp|lt|gt|quot|apos);)/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
       return `>${escaped}<`;
     });
+
+    // Restore CDATA sections
+    cdataSections.forEach((cdata, index) => {
+      withoutCdata = withoutCdata.replace(`__CDATA_PLACEHOLDER_${index}__`, cdata);
+    });
+
+    return withoutCdata;
   }
 
   /**
@@ -343,6 +489,24 @@ export class XMLParser {
     const fixes = [];
     const replacements = [];
 
+    // Find positions of CDATA sections, comments, and processing instructions to skip them
+    const skipRanges = [];
+    const cdataRegex = /<!\[CDATA\[[\s\S]*?\]\]>/g;
+    const commentRegex = /<!--[\s\S]*?-->/g;
+    const piRegex = /<\?[^?]*\?>/g;
+
+    [cdataRegex, commentRegex, piRegex].forEach(regex => {
+      let match;
+      while ((match = regex.exec(xmlString)) !== null) {
+        skipRanges.push({ start: match.index, end: match.index + match[0].length });
+      }
+    });
+
+    // Helper to check if a position is inside a skip range
+    const shouldSkip = (pos) => {
+      return skipRanges.some(range => pos >= range.start && pos < range.end);
+    };
+
     // Track all tags with their positions
     const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:_-]*)[^>]*>/g;
     let match;
@@ -353,7 +517,12 @@ export class XMLParser {
       const isClosing = fullTag.startsWith('</');
       const isSelfClosing = fullTag.endsWith('/>');
 
-      // Skip processing instructions, comments, CDATA
+      // Skip if this tag is inside CDATA, comment, or PI
+      if (shouldSkip(position)) {
+        continue;
+      }
+
+      // Skip processing instructions and CDATA declarations
       if (tagName.startsWith('?') || tagName.startsWith('!')) {
         continue;
       }
