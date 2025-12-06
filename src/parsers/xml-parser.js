@@ -149,14 +149,39 @@ export class XMLParser {
       fixes.push(`Fixed ${unclosedTags.length} unclosed tag(s): ${unclosedTags.join(', ')}`);
     }
 
-    // Fix 4: Fix unescaped special characters
+    // Fix 4: Fix unclosed attribute quotes
+    // Pattern: id="value> should become id="value">
+    // Look for = followed by " then characters that include > before another "
+    const beforeUnclosedQuote = fixed;
+    fixed = fixed.replace(/(\s[a-zA-Z-]+)="([^"]*>)/g, (match, attrName, value) => {
+      // If the value contains >, it's likely an unclosed quote
+      if (value.includes('>')) {
+        // Insert the closing quote before the >
+        return attrName + '="' + value.replace('>', '">');
+      }
+      return match;
+    });
+    if (fixed !== beforeUnclosedQuote) {
+      fixes.push('Fixed unclosed attribute quotes');
+    }
+
+    // Fix 5: Fix missing equals in attributes
+    // Pattern: id "value" should become id="value"
+    const missingEqualsRegex = /(<[^>]*\s+)([a-zA-Z-]+)\s+"([^"]*)"/g;
+    const beforeMissingEquals = fixed;
+    fixed = fixed.replace(missingEqualsRegex, '$1$2="$3"');
+    if (fixed !== beforeMissingEquals) {
+      fixes.push('Fixed missing equals in attributes');
+    }
+
+    // Fix 6: Fix unescaped special characters
     const beforeEscape = fixed;
     fixed = this._escapeSpecialChars(fixed);
     if (fixed !== beforeEscape) {
       fixes.push('Escaped special characters in text content');
     }
 
-    // Fix 5: Fix attribute quotes
+    // Fix 7: Fix attribute quotes
     const attrRegex = /(<[^>]+\s+)([a-zA-Z-]+)=([^"\s>]+)(?=[\s>])/g;
     const beforeAttrFix = fixed;
     fixed = fixed.replace(attrRegex, '$1$2="$3"');
@@ -164,7 +189,7 @@ export class XMLParser {
       fixes.push('Added quotes to unquoted attributes');
     }
 
-    // Fix 6: Fix invalid tag names (starting with numbers or special chars)
+    // Fix 8: Fix invalid tag names (starting with numbers or special chars)
     // Match both opening and closing tags that start with numbers
     const invalidOpenTagRegex = /<([0-9][a-zA-Z0-9-_]*)/g;
     const invalidCloseTagRegex = /<\/([0-9][a-zA-Z0-9-_]*)/g;
@@ -184,7 +209,7 @@ export class XMLParser {
       fixes.push('Fixed invalid tag names');
     }
 
-    // Fix 7: Balance mismatched tags
+    // Fix 9: Balance mismatched tags
     const balancedResult = this._balanceTags(fixed);
     if (balancedResult.fixes.length > 0) {
       fixed = balancedResult.xml;
@@ -310,32 +335,17 @@ export class XMLParser {
     // Remove XML declaration for analysis
     const withoutDecl = trimmed.replace(/^<\?xml[^?]*\?>\s*/, '');
 
-    // 1. Check for tags with spaces in names (invalid syntax)
-    if (/<[a-zA-Z][a-zA-Z0-9-_]*\s+[a-zA-Z][a-zA-Z0-9-_]*/.test(withoutDecl) &&
-        !/=/.test(withoutDecl.match(/<[a-zA-Z][a-zA-Z0-9-_]*\s+[a-zA-Z][a-zA-Z0-9-_]*/)[0])) {
+    // 1. Check for tags with spaces in names (invalid syntax) - but allow attributes
+    const tagWithSpaceMatch = withoutDecl.match(/<([a-zA-Z][a-zA-Z0-9-_]*)\s+([a-zA-Z][a-zA-Z0-9-_]*)[^=]/);
+    if (tagWithSpaceMatch && !/<[^>]+=/.test(withoutDecl)) {
+      // Only error if there's a space in tag name AND no attributes
       errors.push({
         type: 'invalid_tag_name',
         message: 'Tag names cannot contain spaces',
       });
     }
 
-    // 2. Check for unclosed attribute quotes
-    if (/<[^>]+="[^">]*>/.test(withoutDecl) || /<[^>]+='[^'>]*>/.test(withoutDecl)) {
-      errors.push({
-        type: 'unclosed_attribute_quote',
-        message: 'Unclosed attribute quote detected',
-      });
-    }
-
-    // 3. Check for attributes without equals sign
-    if (/<[^>]+\s+[a-zA-Z-]+\s+"[^"]*"/.test(withoutDecl)) {
-      errors.push({
-        type: 'missing_equals',
-        message: 'Attribute missing equals sign',
-      });
-    }
-
-    // 4. Check for text before root element
+    // 2. Check for text before root element
     const firstTagMatch = withoutDecl.match(/<([a-zA-Z][a-zA-Z0-9:_-]*)/);
     if (firstTagMatch) {
       const beforeFirstTag = withoutDecl.substring(0, firstTagMatch.index).trim();
@@ -352,14 +362,12 @@ export class XMLParser {
       }
     }
 
-    // 5. Check for multiple root elements
-    // Remove comments, PIs, CDATA
+    // 3. Check for multiple root elements
     const cleaned = withoutDecl
       .replace(/<\?[^?]*\?>/g, '')
       .replace(/<!--[\s\S]*?-->/g, '')
       .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '');
 
-    const rootTagRegex = /^<([a-zA-Z][a-zA-Z0-9:_-]*)/g;
     const rootMatches = [];
     let depth = 0;
     const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9:_-]*)[^>]*>/g;
@@ -387,7 +395,7 @@ export class XMLParser {
       });
     }
 
-    // 6. Check for missing opening tag (starts with closing tag or just value)
+    // 4. Check for missing opening tag (starts with closing tag or just value)
     const startsWithClosing = /^\s*<\//.test(withoutDecl);
     // Allow tags starting with numbers (will be fixed later)
     const hasNoOpeningTag = !/<[a-zA-Z0-9]/.test(withoutDecl) && /<\//.test(withoutDecl);
