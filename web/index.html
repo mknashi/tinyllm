@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyLLM - XML/JSON Parser & Fixer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            padding: 30px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        select, button {
+            padding: 10px 20px;
+            font-size: 16px;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        select {
+            background: white;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .editor-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .editor-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            background: #f5f5f5;
+            padding: 10px 15px;
+            font-weight: bold;
+            border-bottom: 2px solid #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-header .status {
+            font-size: 0.9em;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: normal;
+        }
+
+        .status.error {
+            background: #fee;
+            color: #c00;
+        }
+
+        .status.success {
+            background: #efe;
+            color: #060;
+        }
+
+        .status.warning {
+            background: #ffe;
+            color: #880;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            padding: 15px;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 0 0 6px 6px;
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        .info-panel {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .info-panel h3 {
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+
+        .info-item {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #667eea;
+        }
+
+        .info-item strong {
+            display: block;
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .fixes-list {
+            background: #fff;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+
+        .fixes-list ul {
+            list-style-position: inside;
+            color: #060;
+        }
+
+        .fixes-list li {
+            padding: 4px 0;
+        }
+
+        .examples {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .example-btn {
+            padding: 8px 16px;
+            font-size: 14px;
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .example-btn:hover {
+            background: #e0e0e0;
+        }
+
+        footer {
+            background: #f5f5f5;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .editor-container {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 1.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 TinyLLM</h1>
+            <p class="subtitle">Lightweight AI-Powered XML & JSON Parser and Fixer</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">Runs entirely in your browser - Fast, Private, & Lightweight</p>
+        </header>
+
+        <div class="main-content">
+            <div class="info-panel">
+                <h3>Engine Status</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <strong>Status</strong>
+                        <span id="engineStatus">Initializing...</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>AI Model</strong>
+                        <span id="aiStatus">Loading...</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Model Size</strong>
+                        <span id="modelSize">-</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Vocabulary</strong>
+                        <span id="vocabSize">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <select id="formatSelect">
+                    <option value="auto">Auto Detect</option>
+                    <option value="json">JSON</option>
+                    <option value="xml">XML</option>
+                </select>
+
+                <button id="fixBtn">🔧 Fix</button>
+                <button id="validateBtn">✓ Validate</button>
+                <button id="prettifyBtn">✨ Prettify</button>
+                <button id="clearBtn">🗑️ Clear</button>
+
+                <label style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="useAI" checked>
+                    <span>Use AI Fixing</span>
+                </label>
+            </div>
+
+            <div class="examples">
+                <strong>Examples:</strong>
+                <button class="example-btn" data-example="json-broken">Broken JSON</button>
+                <button class="example-btn" data-example="xml-broken">Broken XML</button>
+                <button class="example-btn" data-example="json-valid">Valid JSON</button>
+                <button class="example-btn" data-example="xml-valid">Valid XML</button>
+            </div>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p style="margin-top: 10px;">Processing...</p>
+            </div>
+
+            <div class="editor-container">
+                <div class="editor-panel">
+                    <div class="panel-header">
+                        <span>Input</span>
+                        <span class="status" id="inputStatus"></span>
+                    </div>
+                    <textarea id="inputText" placeholder="Paste your broken JSON or XML here..."></textarea>
+                </div>
+
+                <div class="editor-panel">
+                    <div class="panel-header">
+                        <span>Output</span>
+                        <span class="status" id="outputStatus"></span>
+                    </div>
+                    <textarea id="outputText" placeholder="Fixed output will appear here..." readonly></textarea>
+                </div>
+            </div>
+
+            <div id="fixesPanel" class="fixes-list" style="display: none;">
+                <h3>Applied Fixes:</h3>
+                <ul id="fixesList"></ul>
+            </div>
+        </div>
+
+        <footer>
+            <p>TinyLLM - Open Source Lightweight LLM for Structured Data</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">Model: NanoTransformer (4 layers, 128 dims) | Total Size: ~2-5MB</p>
+        </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

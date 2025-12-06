@@ -1,0 +1,25 @@
+{
+  "name": "tinyllm",
+  "version": "1.0.0",
+  "description": "Lightweight LLM for parsing and fixing XML and JSON files - runs in browsers and on smartphones",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/test-runner.js",
+    "demo": "node web/server.js",
+    "build": "node build.js"
+  },
+  "keywords": [
+    "llm",
+    "xml",
+    "json",
+    "parser",
+    "lightweight",
+    "browser",
+    "mobile"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}
