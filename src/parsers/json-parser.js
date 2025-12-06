@@ -127,7 +127,24 @@ export class JSONParser {
       fixes.push('Fixed unescaped backslashes');
     }
 
-    // Fix 11: Fix NaN, Infinity, undefined
+    // Fix 11: Escape control characters in strings
+    // This handles literal tabs, newlines, etc. in string values
+    const beforeControlFix = fixed;
+    fixed = fixed.replace(/"([^"]*)"/g, (match, content) => {
+      // Escape control characters
+      const escaped = content
+        .replace(/\t/g, '\\t')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\f/g, '\\f')
+        .replace(/\b/g, '\\b');
+      return `"${escaped}"`;
+    });
+    if (fixed !== beforeControlFix) {
+      fixes.push('Escaped control characters in strings');
+    }
+
+    // Fix 12: Fix NaN, Infinity, undefined
     fixed = fixed.replace(/:\s*NaN/g, ': null');
     fixed = fixed.replace(/:\s*Infinity/g, ': null');
     fixed = fixed.replace(/:\s*undefined/g, ': null');
