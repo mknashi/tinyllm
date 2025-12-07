@@ -62,13 +62,24 @@ export class NanoTransformer {
    */
   async loadWeights(weightsPath) {
     try {
-      const response = await fetch(weightsPath);
-      const weights = await response.json();
-      this.weights = weights;
+      let data;
+
+      // Try Node.js first
+      if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+        const fs = await import('fs');
+        const fileContent = await fs.promises.readFile(weightsPath, 'utf-8');
+        data = JSON.parse(fileContent);
+      } else {
+        // Browser environment
+        const response = await fetch(weightsPath);
+        data = await response.json();
+      }
+
+      this.weights = data.weights || data;
       this.initialized = true;
       return true;
     } catch (error) {
-      console.warn('Failed to load weights, using random initialization:', error);
+      console.warn('Failed to load weights, using random initialization:', error.message);
       this.initializeWeights();
       return false;
     }
