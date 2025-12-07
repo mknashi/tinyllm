@@ -72,30 +72,40 @@ export class InferenceEngine {
   }
 
   /**
-   * Parse and fix JSON
+   * Parse and fix JSON with auto-fallback to AI
    */
   async fixJSON(jsonString, useAI = this.config.useAI) {
     if (!this.initialized) {
       await this.initialize();
     }
 
+    // Use new options parameter for auto-fallback
     if (useAI && this.model) {
-      return await this.jsonParser.fixWithAI(jsonString, this.model, this.tokenizer);
+      return await this.jsonParser.fix(jsonString, {
+        useAI: true,
+        model: this.model,
+        tokenizer: this.tokenizer
+      });
     }
 
     return this.jsonParser.fix(jsonString);
   }
 
   /**
-   * Parse and fix XML
+   * Parse and fix XML with auto-fallback to AI
    */
   async fixXML(xmlString, useAI = this.config.useAI) {
     if (!this.initialized) {
       await this.initialize();
     }
 
+    // Use new options parameter for auto-fallback
     if (useAI && this.model) {
-      return await this.xmlParser.fixWithAI(xmlString, this.model, this.tokenizer);
+      return await this.xmlParser.fix(xmlString, {
+        useAI: true,
+        model: this.model,
+        tokenizer: this.tokenizer
+      });
     }
 
     return this.xmlParser.fix(xmlString);
