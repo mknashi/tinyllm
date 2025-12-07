@@ -132,22 +132,22 @@ export class JSONParser {
       fixes.push('Fixed unescaped backslashes');
     }
 
-    // Fix 11: Escape control characters in strings
-    // This handles literal tabs, newlines, etc. in string values
-    const beforeControlFix = fixed;
-    fixed = fixed.replace(/"([^"]*)"/g, (match, content) => {
-      // Escape control characters
-      const escaped = content
-        .replace(/\t/g, '\\t')
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/\f/g, '\\f')
-        .replace(/\b/g, '\\b');
-      return `"${escaped}"`;
-    });
-    if (fixed !== beforeControlFix) {
-      fixes.push('Escaped control characters in strings');
-    }
+    // Fix 11: Escape control characters in strings (REMOVED)
+    // IMPORTANT: This fix has been removed due to a critical bug.
+    //
+    // The regex /"([^"]*)"/g matches ALL quoted strings in JSON, not just those
+    // with control characters. Combined with /\b/g (which is a word boundary, not
+    // a backspace character), this corrupted valid JSON by inserting \b at every
+    // word boundary in string values.
+    //
+    // Example corruption: "name" became "\bname\b"
+    //
+    // If control character escaping is needed in the future, it should:
+    // 1. Only process strings that actually contain control characters
+    // 2. Use \x08 instead of \b for backspace character matching
+    // 3. Consider using a JSON validator/formatter instead of regex
+    //
+    // See: https://github.com/mknashi/tinyllm/issues/[ISSUE_NUMBER]
 
     // Fix 12: Fix NaN, Infinity, undefined
     fixed = fixed.replace(/:\s*NaN/g, ': null');
