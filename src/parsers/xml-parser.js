@@ -110,15 +110,25 @@ export class XMLParser {
   }
 
   /**
-   * Fix common XML errors
+   * Fix common XML errors with optional AI fallback
+   * @param {string} xmlString - The XML to fix
+   * @param {Object} options - Optional configuration
+   * @param {boolean} options.useAI - Enable AI fallback if rule-based fails
+   * @param {Object} options.model - AI model instance (required if useAI is true)
+   * @param {Object} options.tokenizer - Tokenizer instance (required if useAI is true)
    */
-  fix(xmlString) {
+  fix(xmlString, options = {}) {
     let fixed = xmlString;
     const fixes = [];
 
     // Pre-validation: Check for critical unfixable errors
     const criticalErrors = this._detectCriticalErrors(xmlString);
     if (criticalErrors.length > 0) {
+      // If AI mode is enabled, skip critical error rejection and let AI try
+      if (options.useAI && options.model && options.tokenizer) {
+        return this.fixWithAI(xmlString, options.model, options.tokenizer);
+      }
+
       return {
         success: false,
         fixed: xmlString,
@@ -126,6 +136,7 @@ export class XMLParser {
         fixes: [],
         data: null,
         errors: criticalErrors,
+        canTryAI: true, // Signal that AI might help
       };
     }
 
@@ -219,6 +230,11 @@ export class XMLParser {
     // Validate the fix
     const parseResult = this.parse(fixed);
 
+    // Auto-fallback to AI if rule-based failed and AI mode is enabled
+    if (!parseResult.success && options.useAI && options.model && options.tokenizer) {
+      return this.fixWithAI(xmlString, options.model, options.tokenizer);
+    }
+
     return {
       success: parseResult.success,
       fixed: fixed,
@@ -226,6 +242,8 @@ export class XMLParser {
       fixes: fixes,
       data: parseResult.data,
       errors: parseResult.errors,
+      method: 'rules',
+      canTryAI: !parseResult.success, // Signal if AI might help
     };
   }
 

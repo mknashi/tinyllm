@@ -29,9 +29,14 @@ export class JSONParser {
   }
 
   /**
-   * Attempt to fix common JSON errors
+   * Attempt to fix common JSON errors with optional AI fallback
+   * @param {string} jsonString - The JSON to fix
+   * @param {Object} options - Optional configuration
+   * @param {boolean} options.useAI - Enable AI fallback if rule-based fails
+   * @param {Object} options.model - AI model instance (required if useAI is true)
+   * @param {Object} options.tokenizer - Tokenizer instance (required if useAI is true)
    */
-  fix(jsonString) {
+  fix(jsonString, options = {}) {
     let fixed = jsonString;
     const fixes = [];
 
@@ -152,6 +157,11 @@ export class JSONParser {
     // Validate the fix
     const parseResult = this.parse(fixed);
 
+    // Auto-fallback to AI if rule-based failed and AI mode is enabled
+    if (!parseResult.success && options.useAI && options.model && options.tokenizer) {
+      return this.fixWithAI(jsonString, options.model, options.tokenizer);
+    }
+
     return {
       success: parseResult.success,
       fixed: fixed,
@@ -159,6 +169,8 @@ export class JSONParser {
       fixes: fixes,
       data: parseResult.data,
       errors: parseResult.errors,
+      method: 'rules',
+      canTryAI: !parseResult.success, // Signal if AI might help
     };
   }
 
