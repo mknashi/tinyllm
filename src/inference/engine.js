@@ -218,17 +218,21 @@ export class InferenceEngine {
    * Load JSON file (browser and Node.js compatible)
    */
   async _loadJSON(path) {
-    if (typeof fetch !== 'undefined') {
+    // Check for Node.js environment first
+    if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+      // Node.js environment
+      const fs = await import('fs');
+      const data = await fs.promises.readFile(path, 'utf-8');
+      return JSON.parse(data);
+    } else if (typeof fetch !== 'undefined') {
+      // Browser environment
       const response = await fetch(path);
       if (!response.ok) {
         throw new Error(`Failed to load ${path}: ${response.statusText}`);
       }
       return await response.json();
     } else {
-      // Node.js environment
-      const fs = await import('fs');
-      const data = await fs.promises.readFile(path, 'utf-8');
-      return JSON.parse(data);
+      throw new Error('Neither fs nor fetch available');
     }
   }
 }
