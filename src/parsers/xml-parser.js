@@ -429,7 +429,8 @@ export class XMLParser {
   }
 
   /**
-   * Fix unclosed tags with position-aware insertion
+   * Fix unclosed tags with enhanced nested tag detection
+   * Properly handles cases where parent closes before child
    */
   _fixUnclosedTags(xmlString) {
     const tagStack = [];
@@ -452,6 +453,7 @@ export class XMLParser {
         name: tagName,
         fullTag: fullTag,
         position: position,
+        endPosition: match.index + fullTag.length,
         isClosing: fullTag.startsWith('</'),
         isSelfClosing: fullTag.endsWith('/>')
       });
@@ -466,22 +468,30 @@ export class XMLParser {
           const topTag = tagStack[tagStack.length - 1];
 
           if (topTag.name === tag.name) {
-            // Matching closing tag
+            // Matching closing tag - perfect!
             tagStack.pop();
           } else {
-            // Mismatched - need to close all open tags up to this one
+            // Mismatched - parent trying to close while child(ren) still open
             const indexInStack = tagStack.map(t => t.name).lastIndexOf(tag.name);
 
             if (indexInStack >= 0) {
-              // Close all tags from top of stack down to the matching tag
-              while (tagStack.length > indexInStack) {
+              // Found the matching opening tag deeper in stack
+              // Close all unclosed children BEFORE this parent closes
+              // Pop everything ABOVE the matching tag (not including the matching tag itself)
+              while (tagStack.length > indexInStack + 1) {
                 const unclosed = tagStack.pop();
                 insertions.push({
                   position: tag.position,
-                  tag: `</${unclosed.name}>`
+                  tag: `</${unclosed.name}>`,
+                  priority: 1 // Higher priority = insert first
                 });
               }
-              tagStack.pop(); // Remove the matching tag
+
+              // Remove the matching parent tag (it has a closing tag already)
+              tagStack.pop();
+            } else {
+              // No matching opening tag found - this closing tag is orphaned
+              // We'll handle it in the balancing step
             }
           }
         }
@@ -496,14 +506,22 @@ export class XMLParser {
       tagStack.reverse().forEach(tag => {
         insertions.push({
           position: endPosition,
-          tag: `</${tag.name}>`
+          tag: `</${tag.name}>`,
+          priority: 0
         });
       });
     }
 
-    // Apply insertions in reverse order to maintain positions
+    // Apply insertions in reverse position order, maintaining priority
+    // Higher priority insertions at same position go first
     let fixedXml = xmlString;
-    insertions.sort((a, b) => b.position - a.position);
+    insertions.sort((a, b) => {
+      if (a.position !== b.position) {
+        return b.position - a.position;
+      }
+      return (b.priority || 0) - (a.priority || 0);
+    });
+
     insertions.forEach(insertion => {
       fixedXml = fixedXml.substring(0, insertion.position) +
                  insertion.tag + '\n' +
@@ -552,8 +570,9 @@ export class XMLParser {
   }
 
   /**
-   * Fix mismatched closing tag names
+   * Fix mismatched closing tag names (typos only, not structural issues)
    * For example: <product>...</product1> becomes <product>...</product>
+   * Does NOT fix unclosed nested tags - those are handled by _fixUnclosedTags
    */
   _fixMismatchedTags(xmlString) {
     const tagStack = [];
@@ -604,9 +623,13 @@ export class XMLParser {
 
           // Check if closing tag doesn't match expected tag
           if (expected.name !== tagName) {
-            // Check if it's a similar tag (common typos)
-            if (this._isSimilarTag(expected.name, tagName)) {
-              // Auto-correct the closing tag
+            // IMPORTANT: Only fix if it's a similar tag (typo)
+            // Do NOT fix if the tag is found deeper in the stack
+            // (that's an unclosed nested tag, not a typo)
+            const indexInStack = tagStack.map(t => t.name).indexOf(tagName);
+
+            if (indexInStack === -1 && this._isSimilarTag(expected.name, tagName)) {
+              // Tag not in stack at all AND looks like a typo → fix it
               replacements.push({
                 position: position,
                 oldTag: fullTag,
@@ -616,6 +639,11 @@ export class XMLParser {
               });
               tagStack.pop();
               fixes.push(`Fixed mismatched tag: </${tagName}> → </${expected.name}>`);
+            } else if (indexInStack >= 0) {
+              // Tag IS in the stack (unclosed nested tag scenario)
+              // Don't fix - let _fixUnclosedTags handle it
+              // Just pop the stack to continue processing
+              tagStack.pop();
             }
           } else {
             tagStack.pop();
