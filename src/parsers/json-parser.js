@@ -280,12 +280,17 @@ export class JSONParser {
    */
   _fixUnclosedStrings(jsonString) {
     // First pass: Add missing opening quotes for values
-    // Pattern: : value" where opening quote is missing
-    let fixed = jsonString.replace(/:\s*([^"\s{[\]},][^"]*)"(?=\s*[,}\]])/g, (match, value) => {
+    // Pattern: "key": value" where opening quote is missing
+    // IMPORTANT: Match only after a properly quoted key to avoid matching colons inside string values
+    let fixed = jsonString.replace(/"[^"]*":\s*([^"\s{[\]},][^"]*)"(?=\s*[,}\]])/g, (match, value) => {
+      // Extract the key part and reconstruct
+      const colonIndex = match.indexOf(':');
+      const keyPart = match.substring(0, colonIndex + 1);
+
       // Check if this looks like an unquoted value followed by a closing quote
       // Don't fix if it contains { or [ (those are objects/arrays, not strings)
       if (!value.includes('{') && !value.includes('[')) {
-        return `: "${value}"`;
+        return `${keyPart} "${value}"`;
       }
       return match;
     });
