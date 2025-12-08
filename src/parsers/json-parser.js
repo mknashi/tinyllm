@@ -132,22 +132,22 @@ export class JSONParser {
       fixes.push('Fixed unescaped backslashes');
     }
 
-    // Fix 11: Escape control characters in strings (REMOVED)
-    // IMPORTANT: This fix has been removed due to a critical bug.
-    //
-    // The regex /"([^"]*)"/g matches ALL quoted strings in JSON, not just those
-    // with control characters. Combined with /\b/g (which is a word boundary, not
-    // a backspace character), this corrupted valid JSON by inserting \b at every
-    // word boundary in string values.
-    //
-    // Example corruption: "name" became "\bname\b"
-    //
-    // If control character escaping is needed in the future, it should:
-    // 1. Only process strings that actually contain control characters
-    // 2. Use \x08 instead of \b for backspace character matching
-    // 3. Consider using a JSON validator/formatter instead of regex
-    //
-    // See: https://github.com/mknashi/tinyllm/issues/[ISSUE_NUMBER]
+    // Fix 11: Escape control characters in strings
+    // This handles literal tabs, newlines, etc. in string values
+    const beforeControlFix = fixed;
+    fixed = fixed.replace(/"([^"]*)"/g, (match, content) => {
+      // Escape control characters
+      const escaped = content
+        .replace(/\t/g, '\\t')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\f/g, '\\f')
+        .replace(/\x08/g, '\\b');  // \x08 is backspace, NOT \b (word boundary)
+      return `"${escaped}"`;
+    });
+    if (fixed !== beforeControlFix) {
+      fixes.push('Escaped control characters in strings');
+    }
 
     // Fix 12: Fix NaN, Infinity, undefined
     fixed = fixed.replace(/:\s*NaN/g, ': null');
@@ -276,16 +276,33 @@ export class JSONParser {
   }
 
   /**
-   * Fix unclosed strings by adding missing closing quotes
+   * Fix unclosed strings by adding missing opening AND closing quotes
    */
   _fixUnclosedStrings(jsonString) {
+    // First pass: Add missing opening quotes for values
+    // Pattern: "key": value" where opening quote is missing
+    // IMPORTANT: Match only after a properly quoted key to avoid matching colons inside string values
+    let fixed = jsonString.replace(/"[^"]*":\s*([^"\s{[\]},][^"]*)"(?=\s*[,}\]])/g, (match, value) => {
+      // Extract the key part and reconstruct
+      const colonIndex = match.indexOf(':');
+      const keyPart = match.substring(0, colonIndex + 1);
+
+      // Check if this looks like an unquoted value followed by a closing quote
+      // Don't fix if it contains { or [ (those are objects/arrays, not strings)
+      if (!value.includes('{') && !value.includes('[')) {
+        return `${keyPart} "${value}"`;
+      }
+      return match;
+    });
+
+    // Second pass: Add missing closing quotes
     let result = '';
     let inString = false;
     let escapeNext = false;
     let stringStart = -1;
 
-    for (let i = 0; i < jsonString.length; i++) {
-      const char = jsonString[i];
+    for (let i = 0; i < fixed.length; i++) {
+      const char = fixed[i];
 
       // Handle escape sequences
       if (escapeNext) {
