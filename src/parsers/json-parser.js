@@ -142,7 +142,7 @@ export class JSONParser {
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r')
         .replace(/\f/g, '\\f')
-        .replace(/\b/g, '\\b');
+        .replace(/\x08/g, '\\b');  // \x08 is backspace, NOT \b (word boundary)
       return `"${escaped}"`;
     });
     if (fixed !== beforeControlFix) {
@@ -276,16 +276,28 @@ export class JSONParser {
   }
 
   /**
-   * Fix unclosed strings by adding missing closing quotes
+   * Fix unclosed strings by adding missing opening AND closing quotes
    */
   _fixUnclosedStrings(jsonString) {
+    // First pass: Add missing opening quotes for values
+    // Pattern: : value" where opening quote is missing
+    let fixed = jsonString.replace(/:\s*([^"\s{[\]},][^"]*)"(?=\s*[,}\]])/g, (match, value) => {
+      // Check if this looks like an unquoted value followed by a closing quote
+      // Don't fix if it contains { or [ (those are objects/arrays, not strings)
+      if (!value.includes('{') && !value.includes('[')) {
+        return `: "${value}"`;
+      }
+      return match;
+    });
+
+    // Second pass: Add missing closing quotes
     let result = '';
     let inString = false;
     let escapeNext = false;
     let stringStart = -1;
 
-    for (let i = 0; i < jsonString.length; i++) {
-      const char = jsonString[i];
+    for (let i = 0; i < fixed.length; i++) {
+      const char = fixed[i];
 
       // Handle escape sequences
       if (escapeNext) {
