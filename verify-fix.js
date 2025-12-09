@@ -11,10 +11,13 @@ const testInput = `[
     "direcry": "Users/sunchipnacho/Source/distrt/build",
     "command": "/usr/bin/c++ -I/Users/sunchipnacho/Source/distrt/. -isystem /opt/homebrew/include -std=gnu++2b -arch arm64 -Wall -Wextra -Wpedantic -Werror -ggdb3 -Xclang -fopenmp -o CMakeFiles/distrt.dir/main.cpp.o -c /Users/sunchipnacho/Source/distrt/main.cpp",
 
-    "file": "/Users/sunchipnacho/Source/distrt/main.cpp"
-    "output": "/Users/sunchipnacho/Source/distrt/build/CMakeFiles/distrt.dir/main.cpp.o"
+    "file: "/Users/sunchipnacho/Source/distrt/main.cpp"
+    output: "/Users/sunchipnacho/Source/distrt/build/CMakeFiles/distrt.dir/main.cpp.o"
   }
 ]`;
+
+console.log('\nInput:');
+console.log(testInput);
 
 const parser = new JSONParser();
 const result = parser.fix(testInput);
