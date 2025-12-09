@@ -48,8 +48,25 @@ export class JSONParser {
       fixes.push('Converted single quotes to double quotes');
     }
 
+    // Fix 1.5: Fix unclosed property keys BEFORE fixing unclosed strings
+    // Pattern: "key: value -> "key": value
+    const beforeUnclosedKeyFix = fixed;
+    fixed = fixed.replace(/"([^":\n]+):\s*"/g, (match, keyName, offset, string) => {
+      // Check if this is actually an unclosed key by looking at context
+      // We need to ensure the opening quote doesn't have a matching closing quote before the colon
+      const beforeMatch = string.substring(Math.max(0, offset - 10), offset);
+      // If we see { or , before this, it's likely a key position
+      if (/[{,]\s*$/.test(beforeMatch)) {
+        return `"${keyName}": "`;
+      }
+      return match;
+    });
+    if (fixed !== beforeUnclosedKeyFix) {
+      fixes.push('Fixed unclosed property keys');
+    }
+
     // Fix 2: Fix unclosed strings (missing closing quotes)
-    // IMPORTANT: Must run BEFORE comment removal to avoid treating // in URLs as comments
+    // IMPORTANT: Must run AFTER unclosed key fix and BEFORE comment removal to avoid treating // in URLs as comments
     const beforeStringFix = fixed;
     fixed = this._fixUnclosedStrings(fixed);
     if (fixed !== beforeStringFix) {
