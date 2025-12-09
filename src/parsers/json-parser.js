@@ -88,9 +88,12 @@ export class JSONParser {
     }
 
     // Fix 5: Fix unquoted keys
+    // Match unquoted keys after {, comma, or closing quote (for missing comma cases)
     const unquotedKeyRegex = /([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*:)/g;
+    const unquotedKeyAfterValueRegex = /(["}\]]\s+)([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*:)/g;
     const beforeKeyFix = fixed;
     fixed = fixed.replace(unquotedKeyRegex, '$1"$2"$3');
+    fixed = fixed.replace(unquotedKeyAfterValueRegex, '$1"$2"$3');
     if (fixed !== beforeKeyFix) {
       fixes.push('Quoted unquoted keys');
     }
