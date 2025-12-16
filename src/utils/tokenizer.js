@@ -40,11 +40,15 @@ export class Tokenizer {
       '&', '#', '(', ')', '-', '_', '+', '*', '@',
     ];
 
-    // Common XML/JSON tokens
-    const commonTokens = [
-      '<?xml', '?>', '</', '/>', '<!--', '-->',
-      'version', 'encoding', 'UTF-8', 'true', 'false', 'null',
+    // Structured tokens to help the model latch onto schema-like patterns
+    const structuredTokens = [
+      '<json_fix>', '<xml_fix>',
+      '<?xml', '?>', '</', '/>', '"/>', '<!--', '-->', '<![CDATA[', ']]>',
+      'version', 'encoding', 'UTF-8', 'xmlns', 'xmlns:', 'http', 'https',
+      'true', 'false', 'null',
       '&lt;', '&gt;', '&amp;', '&quot;', '&apos;',
+      '":', '": ', ',"', '",', '",\n', '",\r\n', '":{', '":[', '": [', '": {',
+      '\\n', '\\r', '\\t', '\\u', '\\\\', '\\/', '\\b', '\\f',
     ];
 
     // Letters and digits
@@ -62,28 +66,19 @@ export class Tokenizer {
       ...specialTokens,
       ...commonChars,
       ...alphanumeric,
-      ...commonTokens,
+      ...structuredTokens,
     ];
 
     this.vocab = {};
     this.idToToken = {};
 
-    allTokens.forEach((token, index) => {
-      this.vocab[token] = index;
-      this.idToToken[index] = token;
-    });
+    allTokens.forEach(token => this._addToken(token));
 
     // Add common bigrams and trigrams
     const commonBigrams = ['th', 'he', 'in', 'er', 'an', 'on', 'at', 'en'];
     const commonTrigrams = ['the', 'and', 'ing', 'ion'];
 
-    [...commonBigrams, ...commonTrigrams].forEach(token => {
-      if (!(token in this.vocab)) {
-        const id = Object.keys(this.vocab).length;
-        this.vocab[token] = id;
-        this.idToToken[id] = token;
-      }
-    });
+    [...commonBigrams, ...commonTrigrams].forEach(token => this._addToken(token));
   }
 
   /**
@@ -128,7 +123,7 @@ export class Tokenizer {
       let matched = false;
 
       // Try to match longest token first
-      for (let len = Math.min(10, text.length - i); len > 0; len--) {
+      for (let len = Math.min(24, text.length - i); len > 0; len--) {
         const substr = text.substr(i, len);
         if (substr in this.vocab) {
           tokens.push(substr);
@@ -219,5 +214,17 @@ export class Tokenizer {
    */
   batchDecode(idsList, skipSpecialTokens = true) {
     return idsList.map(ids => this.decode(ids, skipSpecialTokens));
+  }
+
+  /**
+   * Add a token to the vocabulary if it does not exist
+   */
+  _addToken(token) {
+    if (token in this.vocab) {
+      return;
+    }
+    const id = Object.keys(this.vocab).length;
+    this.vocab[token] = id;
+    this.idToToken[id] = token;
   }
 }

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TinyLLM Local Test Bench</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #0b1323;
+      --card: #111827;
+      --accent: #06b6d4;
+      --muted: #94a3b8;
+      --text: #e2e8f0;
+      --success: #22c55e;
+      --error: #f87171;
+      --mono: "SFMono-Regular", "Consolas", "Roboto Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+      background: radial-gradient(120% 120% at 20% 20%, rgba(6, 182, 212, 0.12), transparent 55%), var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .title {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.5px;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .badges {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      background: var(--card);
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+    .card h3 {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+    label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    select, button, textarea {
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--panel);
+      color: var(--text);
+    }
+    select, button {
+      padding: 10px 14px;
+      font-size: 14px;
+    }
+    button {
+      background: linear-gradient(135deg, var(--accent), #0ea5e9);
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      box-shadow: 0 8px 20px rgba(6, 182, 212, 0.25);
+    }
+    button.secondary {
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: none;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    textarea {
+      width: 100%;
+      min-height: 320px;
+      padding: 14px;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.5;
+      resize: vertical;
+    }
+    .status-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .pill {
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .pill.neutral { color: var(--muted); }
+    .pill.success { color: var(--success); border-color: rgba(34, 197, 94, 0.35); }
+    .pill.error { color: var(--error); border-color: rgba(248, 113, 113, 0.35); }
+    .examples {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .example-btn {
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      color: var(--text);
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+    }
+    .metric {
+      background: var(--panel);
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .metric .label { color: var(--muted); font-size: 12px; }
+    .metric .value { font-size: 16px; margin-top: 4px; }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+      textarea { min-height: 220px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="title">
+        <h1>TinyLLM Local Test Bench</h1>
+        <div class="subtitle">Run rule-based vs SLM locally in your browser. No network calls.</div>
+      </div>
+      <div class="badges">
+        <span class="badge" id="statusBadge">Status: init</span>
+        <span class="badge" id="modelBadge">Model: -</span>
+        <span class="badge" id="vocabBadge">Vocab: -</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Input</h3>
+        <div class="controls">
+          <select id="formatSelect">
+            <option value="auto">Auto</option>
+            <option value="json">JSON</option>
+            <option value="xml">XML</option>
+          </select>
+          <button id="runFix">Fix</button>
+          <button id="runValidate" class="secondary">Validate</button>
+          <button id="runPrettify" class="secondary">Prettify</button>
+          <button id="clear" class="secondary">Clear</button>
+        </div>
+        <div class="controls">
+          <label><input type="checkbox" id="useSLM" checked> Use SLM</label>
+          <label><input type="checkbox" id="useAI" checked> Allow AI</label>
+          <label><input type="checkbox" id="ruleAssist" checked> Rule assist</label>
+          <span class="pill" id="latencyPill">Latency: -</span>
+        </div>
+        <div class="examples">
+          <button class="example-btn" data-example="json-broken">Broken JSON</button>
+          <button class="example-btn" data-example="xml-broken">Broken XML</button>
+          <button class="example-btn" data-example="json-valid">Valid JSON</button>
+          <button class="example-btn" data-example="xml-valid">Valid XML</button>
+        </div>
+        <textarea id="inputArea" placeholder="Paste broken JSON or XML..."></textarea>
+      </div>
+
+      <div class="card">
+        <h3>Output</h3>
+        <div class="status-bar">
+          <span class="pill" id="outputStatus">Awaiting input</span>
+          <span class="pill" id="methodPill">Method: -</span>
+        </div>
+        <textarea id="outputArea" placeholder="Result will appear here..." readonly></textarea>
+        <div class="metrics" style="margin-top:12px;">
+          <div class="metric">
+            <div class="label">Fixes</div>
+            <div class="value" id="fixList">-</div>
+          </div>
+          <div class="metric">
+            <div class="label">Errors</div>
+            <div class="value" id="errorList">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./local-test.js"></script>
+</body>
+</html>

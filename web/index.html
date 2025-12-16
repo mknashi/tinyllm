@@ -284,23 +284,27 @@
                 </div>
             </div>
 
-            <div class="controls">
-                <select id="formatSelect">
-                    <option value="auto">Auto Detect</option>
-                    <option value="json">JSON</option>
-                    <option value="xml">XML</option>
-                </select>
+        <div class="controls">
+            <select id="formatSelect">
+                <option value="auto">Auto Detect</option>
+                <option value="json">JSON</option>
+                <option value="xml">XML</option>
+            </select>
 
-                <button id="fixBtn">🔧 Fix</button>
-                <button id="validateBtn">✓ Validate</button>
-                <button id="prettifyBtn">✨ Prettify</button>
-                <button id="clearBtn">🗑️ Clear</button>
+            <button id="fixBtn">🔧 Fix</button>
+            <button id="validateBtn">✓ Validate</button>
+            <button id="prettifyBtn">✨ Prettify</button>
+            <button id="clearBtn">🗑️ Clear</button>
 
-                <label style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="useAI" checked>
-                    <span>Use AI Fixing</span>
-                </label>
-            </div>
+            <label style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="useSLM">
+                <span>Use SLM</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="useRules" checked>
+                <span>Allow rules fallback</span>
+            </label>
+        </div>
 
             <div class="examples">
                 <strong>Examples:</strong>

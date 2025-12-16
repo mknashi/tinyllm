@@ -14,12 +14,14 @@ export class ModelTrainer {
       batchSize: config.batchSize || 4,
       numEpochs: config.numEpochs || 10,
       maxSeqLen: config.maxSeqLen || 256,
+      trainSplit: config.trainSplit || 0.8,
       ...config
     };
 
     this.model = null;
     this.tokenizer = null;
     this.trainingData = [];
+    this.evalData = [];
     this.losses = [];
   }
 
@@ -56,40 +58,59 @@ export class ModelTrainer {
   /**
    * Prepare training data
    */
-  prepareTrainingData() {
+  prepareTrainingData(useAugmented = true) {
     console.log('Generating training data...');
 
     const generator = new TrainingDataGenerator();
     const allExamples = generator.getAllExamples();
 
-    // Create training pairs
-    this.trainingData = [
-      ...allExamples.pairs.xml,
-      ...allExamples.pairs.json
-    ];
+    // Prefer augmented pairs for coverage, but allow falling back
+    const pairs = useAugmented ? allExamples.augmented : [...allExamples.pairs.xml, ...allExamples.pairs.json];
+    const shuffled = this._shuffle(pairs);
+    const splitIndex = Math.max(1, Math.floor(shuffled.length * this.config.trainSplit));
 
-    console.log(`Generated ${this.trainingData.length} training examples`);
+    this.trainingData = shuffled.slice(0, splitIndex);
+    this.evalData = shuffled.slice(splitIndex);
 
-    // Tokenize all examples
+    console.log(`Generated ${pairs.length} examples (${this.trainingData.length} train / ${this.evalData.length} eval)`);
+
+    // Tokenize all examples with teacher-forcing targets (next-token prediction)
     this.tokenizedData = this.trainingData.map((pair, idx) => {
-      const inputIds = this.tokenizer.encode(pair.prompt);
-      const targetIds = this.tokenizer.encode(pair.completion);
+      const fullText = `${pair.prompt}\n${pair.completion}`;
+      const inputIds = this.tokenizer.encode(fullText);
 
-      // Truncate if too long
       const maxLen = this.config.maxSeqLen;
       const truncatedInput = inputIds.slice(0, maxLen);
-      const truncatedTarget = targetIds.slice(0, maxLen);
+
+      // Shifted targets for next-token prediction
+      const targetIds = truncatedInput.slice(1);
+      const modelInput = truncatedInput.slice(0, targetIds.length);
 
       return {
-        inputIds: truncatedInput,
-        targetIds: truncatedTarget,
+        inputIds: modelInput,
+        targetIds,
         description: pair.description,
+        errorType: pair.errorType || 'unknown',
         index: idx
       };
     });
 
-    console.log('Training data prepared and tokenized');
-    return this.tokenizedData;
+    this.tokenizedEval = this.evalData.map((pair, idx) => {
+      const fullText = `${pair.prompt}\n${pair.completion}`;
+      const inputIds = this.tokenizer.encode(fullText).slice(0, this.config.maxSeqLen);
+      const targetIds = inputIds.slice(1);
+      const modelInput = inputIds.slice(0, targetIds.length);
+      return {
+        inputIds: modelInput,
+        targetIds,
+        description: pair.description,
+        errorType: pair.errorType || 'unknown',
+        index: idx
+      };
+    });
+
+    console.log('Training and eval data prepared and tokenized');
+    return { train: this.tokenizedData, eval: this.tokenizedEval };
   }
 
   /**
@@ -178,6 +199,78 @@ export class ModelTrainer {
       // Apply weight optimization based on patterns
       if (epoch % 2 === 0) {
         this._optimizeWeights(shuffled);
+      }
+    }
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`\nTraining completed in ${duration}s`);
+
+    return {
+      finalLoss: this.losses[this.losses.length - 1],
+      losses: this.losses,
+      duration: parseFloat(duration)
+    };
+  }
+
+  /**
+   * Lightweight teacher-forced cross-entropy training.
+   * Updates only output biases to stay browser/Tauri friendly.
+   */
+  async trainCrossEntropy() {
+    if (!this.model || !this.tokenizer) {
+      this.initialize();
+    }
+    if (!this.tokenizedData || this.tokenizedData.length === 0) {
+      this.prepareTrainingData(true);
+    }
+
+    console.log('\n=== Starting Cross-Entropy Training (bias-only updates) ===\n');
+    console.log(`Training on ${this.tokenizedData.length} examples`);
+    const startTime = Date.now();
+    this.losses = [];
+
+    for (let epoch = 0; epoch < this.config.numEpochs; epoch++) {
+      const shuffled = this._shuffle([...this.tokenizedData]);
+      let epochLoss = 0;
+      let tokenCount = 0;
+
+      for (let i = 0; i < shuffled.length; i += this.config.batchSize) {
+        const batch = shuffled.slice(i, i + this.config.batchSize);
+
+        for (const example of batch) {
+          const logits = this.model.forward(example.inputIds);
+
+          for (let t = 0; t < Math.min(logits.length, example.targetIds.length); t++) {
+            const probs = this._softmax(logits[t]);
+            const targetId = example.targetIds[t];
+
+            const prob = Math.max(probs[targetId] || 1e-9, 1e-9);
+            epochLoss += -Math.log(prob);
+            tokenCount++;
+
+            // Bias-only update: dL/dlogit = prob - 1 for target
+            if (this.model.weights.outputBias && targetId < this.model.weights.outputBias.length) {
+              const grad = probs[targetId] - 1;
+              this.model.weights.outputBias[targetId] -= this.config.learningRate * grad;
+            }
+          }
+        }
+
+        // Lightweight progress
+        if ((i / this.config.batchSize) % 10 === 0) {
+          const progress = ((i / shuffled.length) * 100).toFixed(1);
+          process.stdout.write(`\r  Progress: ${progress}%`);
+        }
+      }
+
+      const avgLoss = tokenCount > 0 ? epochLoss / tokenCount : 0;
+      this.losses.push(avgLoss);
+      console.log(`\rEpoch ${epoch + 1}/${this.config.numEpochs} - Avg token loss: ${avgLoss.toFixed(4)}`);
+
+      // Eval pass (no updates) to track overfitting
+      if (this.tokenizedEval && this.tokenizedEval.length > 0) {
+        const evalLoss = this._evalLoss(this.tokenizedEval);
+        console.log(`  Eval loss: ${evalLoss.toFixed(4)} on ${this.tokenizedEval.length} samples`);
       }
     }
 
@@ -353,6 +446,27 @@ export class ModelTrainer {
 
   _argmax(array) {
     return array.indexOf(Math.max(...array));
+  }
+
+  /**
+   * Evaluate average token loss over a dataset (no updates)
+   */
+  _evalLoss(dataset) {
+    let total = 0;
+    let count = 0;
+
+    dataset.forEach(example => {
+      const logits = this.model.forward(example.inputIds);
+      for (let t = 0; t < Math.min(logits.length, example.targetIds.length); t++) {
+        const probs = this._softmax(logits[t]);
+        const targetId = example.targetIds[t];
+        const prob = Math.max(probs[targetId] || 1e-9, 1e-9);
+        total += -Math.log(prob);
+        count++;
+      }
+    });
+
+    return count > 0 ? total / count : 0;
   }
 
   /**
