@@ -61,6 +61,8 @@ export class JSONParser {
       }
       return match;
     });
+    // Same for non-string values: "key: 1 -> "key": 1 (identifier-like keys only)
+    fixed = fixed.replace(/([{,]\s*)"([A-Za-z_$][\w$-]*):(\s*)(?=[-\d{[]|true\b|false\b|null\b)/g, '$1"$2":$3');
     if (fixed !== beforeUnclosedKeyFix) {
       fixes.push('Fixed unclosed property keys');
     }
@@ -113,6 +115,15 @@ export class JSONParser {
       fixes.push('Fixed missing colons after keys');
     }
 
+    // Fix 8: Fix missing opening brace
+    // Detect if JSON starts with a key-value pair but missing opening brace
+    // Runs before the closing brace/bracket fixes so the unmatched } is still there
+    const trimmed = fixed.trim();
+    if (trimmed.match(/^"[^"]+"\s*:\s*.+}$/s)) {
+      fixed = '{' + fixed;
+      fixes.push('Added missing opening brace');
+    }
+
     // Fix 7: Fix missing closing braces/brackets
     const openBraces = (fixed.match(/{/g) || []).length;
     const closeBraces = (fixed.match(/}/g) || []).length;
@@ -129,19 +140,11 @@ export class JSONParser {
       fixes.push(`Added ${openBrackets - closeBrackets} missing closing bracket(s)`);
     }
 
-    // Fix 8: Fix missing opening brace
-    // Detect if JSON starts with a key-value pair but missing opening brace
-    const trimmed = fixed.trim();
-    if (trimmed.match(/^"[^"]+"\s*:\s*.+}$/s)) {
-      fixed = '{' + fixed;
-      fixes.push('Added missing opening brace');
-    }
-
-    // Fix 9: Fix numbers with leading zeros
-    // Invalid: {"value": 01} -> Valid: {"value": 1}
-    const leadingZeroRegex = /:\s*0([0-9]+)/g;
+    // Fix 9: Fix numbers with leading zeros (outside strings, so "10:05" is kept)
+    // Invalid: {"value": 007} -> Valid: {"value": 7}
+    const leadingZeroRegex = /([:[,]\s*-?)0+(?=\d)/g;
     const beforeLeadingZeroFix = fixed;
-    fixed = fixed.replace(leadingZeroRegex, ': $1');
+    fixed = this._replaceOutsideStrings(fixed, leadingZeroRegex, '$1');
     if (fixed !== beforeLeadingZeroFix) {
       fixes.push('Fixed numbers with leading zeros');
     }
@@ -309,6 +312,16 @@ export class JSONParser {
 
     result += pendingWhitespace;
     return result;
+  }
+
+  /**
+   * Apply a regex replacement only to the parts of the text outside double-quoted strings
+   */
+  _replaceOutsideStrings(jsonString, regex, replacement) {
+    return jsonString
+      .split(/("(?:[^"\\]|\\.)*")/)
+      .map((part, index) => (index % 2 === 1 ? part : part.replace(regex, replacement)))
+      .join('');
   }
 
   /**
