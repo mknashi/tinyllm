@@ -61,6 +61,8 @@ export class JSONParser {
       }
       return match;
     });
+    // Same for non-string values: "key: 1 -> "key": 1 (identifier-like keys only)
+    fixed = fixed.replace(/([{,]\s*)"([A-Za-z_$][\w$-]*):(\s*)(?=[-\d{[]|true\b|false\b|null\b)/g, '$1"$2":$3');
     if (fixed !== beforeUnclosedKeyFix) {
       fixes.push('Fixed unclosed property keys');
     }
@@ -105,12 +107,21 @@ export class JSONParser {
       fixes.push('Added missing commas between properties');
     }
 
-    // Fix 6a: Replace comma used instead of colon after a key
-    // {"key", "value"} -> {"key": "value"} (runs after 6 so {"key" "value"} is covered too)
+    // Fix 6a: Replace comma used instead of colon after a key, or insert a missing one
+    // {"key", "value"} -> {"key": "value"}, {"key" 123} -> {"key": 123}
     const beforeColonFix = fixed;
     fixed = this._fixMissingColons(fixed);
     if (fixed !== beforeColonFix) {
-      fixes.push('Replaced commas with missing colons after keys');
+      fixes.push('Fixed missing colons after keys');
+    }
+
+    // Fix 8: Fix missing opening brace
+    // Detect if JSON starts with a key-value pair but missing opening brace
+    // Runs before the closing brace/bracket fixes so the unmatched } is still there
+    const trimmed = fixed.trim();
+    if (trimmed.match(/^"[^"]+"\s*:\s*.+}$/s)) {
+      fixed = '{' + fixed;
+      fixes.push('Added missing opening brace');
     }
 
     // Fix 7: Fix missing closing braces/brackets
@@ -129,19 +140,11 @@ export class JSONParser {
       fixes.push(`Added ${openBrackets - closeBrackets} missing closing bracket(s)`);
     }
 
-    // Fix 8: Fix missing opening brace
-    // Detect if JSON starts with a key-value pair but missing opening brace
-    const trimmed = fixed.trim();
-    if (trimmed.match(/^"[^"]+"\s*:\s*.+}$/s)) {
-      fixed = '{' + fixed;
-      fixes.push('Added missing opening brace');
-    }
-
-    // Fix 9: Fix numbers with leading zeros
-    // Invalid: {"value": 01} -> Valid: {"value": 1}
-    const leadingZeroRegex = /:\s*0([0-9]+)/g;
+    // Fix 9: Fix numbers with leading zeros (outside strings, so "10:05" is kept)
+    // Invalid: {"value": 007} -> Valid: {"value": 7}
+    const leadingZeroRegex = /([:[,]\s*-?)0+(?=\d)/g;
     const beforeLeadingZeroFix = fixed;
-    fixed = fixed.replace(leadingZeroRegex, ': $1');
+    fixed = this._replaceOutsideStrings(fixed, leadingZeroRegex, '$1');
     if (fixed !== beforeLeadingZeroFix) {
       fixes.push('Fixed numbers with leading zeros');
     }
@@ -211,7 +214,9 @@ export class JSONParser {
     let inString = false;
     let escapeNext = false;
     let pendingWhitespace = '';
-    let lastToken = '';  // Last significant token (, { [ } ] : etc)
+    let lastToken = '';  // Last significant token (, { [ } ] : etc, or 'v' for a bare value)
+    // A value just ended, so a new value or key here needs a comma
+    const needsComma = () => ['}', ']', '"', 'v'].includes(lastToken);
 
     for (let i = 0; i < jsonString.length; i++) {
       const char = jsonString[i];
@@ -234,7 +239,7 @@ export class JSONParser {
         if (!inString) {
           // Starting a string
           // Check if we need a comma before this string
-          if (lastToken === '}' || lastToken === ']' || lastToken === '"') {
+          if (needsComma()) {
             result += ',';
           }
           result += pendingWhitespace;
@@ -265,7 +270,7 @@ export class JSONParser {
       // Check for opening braces/brackets
       if (char === '{' || char === '[') {
         // Check if we need a comma before this
-        if (lastToken === '}' || lastToken === ']' || lastToken === '"') {
+        if (needsComma()) {
           result += ',';
         }
         result += pendingWhitespace;
@@ -294,9 +299,15 @@ export class JSONParser {
       }
 
       // Handle other characters (numbers, true, false, null)
+      // A bare value starts after whitespace or a structural token; otherwise it continues one
+      const startsValue = lastToken !== 'v' || pendingWhitespace !== '';
+      if (startsValue && needsComma()) {
+        result += ',';
+      }
       result += pendingWhitespace;
       pendingWhitespace = '';
       result += char;
+      lastToken = 'v';
     }
 
     result += pendingWhitespace;
@@ -304,7 +315,18 @@ export class JSONParser {
   }
 
   /**
-   * Replace a comma that follows an object key with a colon
+   * Apply a regex replacement only to the parts of the text outside double-quoted strings
+   */
+  _replaceOutsideStrings(jsonString, regex, replacement) {
+    return jsonString
+      .split(/("(?:[^"\\]|\\.)*")/)
+      .map((part, index) => (index % 2 === 1 ? part : part.replace(regex, replacement)))
+      .join('');
+  }
+
+  /**
+   * Replace a comma that follows an object key with a colon, or insert a
+   * colon when a value follows the key directly
    * Only applies when the next token is a value, not another key ("key": ...)
    */
   _fixMissingColons(jsonString) {
@@ -332,6 +354,15 @@ export class JSONParser {
     while (i < jsonString.length) {
       const char = jsonString[i];
       const frame = top();
+
+      // Value directly after a key with no separator: "key" 123 -> "key": 123
+      if (frame && frame.type === '{' && frame.state === 'colon' && !/[\s:,}]/.test(char)) {
+        const isKey = char === '"' && jsonString[skipWhitespace(stringEnd(i) + 1)] === ':';
+        if (!isKey) {
+          result = result.trimEnd() + ': ';
+          frame.state = 'value';
+        }
+      }
 
       if (char === '"') {
         const end = stringEnd(i);
