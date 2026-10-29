@@ -105,6 +105,14 @@ export class JSONParser {
       fixes.push('Added missing commas between properties');
     }
 
+    // Fix 6a: Replace comma used instead of colon after a key
+    // {"key", "value"} -> {"key": "value"} (runs after 6 so {"key" "value"} is covered too)
+    const beforeColonFix = fixed;
+    fixed = this._fixMissingColons(fixed);
+    if (fixed !== beforeColonFix) {
+      fixes.push('Replaced commas with missing colons after keys');
+    }
+
     // Fix 7: Fix missing closing braces/brackets
     const openBraces = (fixed.match(/{/g) || []).length;
     const closeBraces = (fixed.match(/}/g) || []).length;
@@ -292,6 +300,83 @@ export class JSONParser {
     }
 
     result += pendingWhitespace;
+    return result;
+  }
+
+  /**
+   * Replace a comma that follows an object key with a colon
+   * Only applies when the next token is a value, not another key ("key": ...)
+   */
+  _fixMissingColons(jsonString) {
+    const stack = [];  // { type: '{' | '[', state: 'key' | 'colon' | 'value' | 'comma' }
+    let result = '';
+    let i = 0;
+
+    const top = () => stack[stack.length - 1];
+    const valueDone = () => {
+      const frame = top();
+      if (frame && frame.type === '{' && frame.state === 'value') frame.state = 'comma';
+    };
+    const stringEnd = (start) => {
+      let j = start + 1;
+      while (j < jsonString.length && jsonString[j] !== '"') {
+        j += jsonString[j] === '\\' ? 2 : 1;
+      }
+      return j;  // Index of closing quote (or length if unclosed)
+    };
+    const skipWhitespace = (j) => {
+      while (j < jsonString.length && /\s/.test(jsonString[j])) j++;
+      return j;
+    };
+
+    while (i < jsonString.length) {
+      const char = jsonString[i];
+      const frame = top();
+
+      if (char === '"') {
+        const end = stringEnd(i);
+        result += jsonString.slice(i, end + 1);
+        i = end + 1;
+        if (frame && frame.type === '{' && frame.state === 'key') {
+          frame.state = 'colon';
+        } else {
+          valueDone();
+        }
+        continue;
+      }
+
+      if (char === '{' || char === '[') {
+        stack.push({ type: char, state: 'key' });
+      } else if (char === '}' || char === ']') {
+        stack.pop();
+        valueDone();
+      } else if (char === ':' && frame && frame.type === '{') {
+        frame.state = 'value';
+      } else if (char === ',' && frame && frame.type === '{') {
+        if (frame.state === 'colon') {
+          // Key followed by comma - is the next token a value or another key?
+          const next = skipWhitespace(i + 1);
+          let isValue = next < jsonString.length && jsonString[next] !== '}';
+          if (jsonString[next] === '"') {
+            const afterNext = skipWhitespace(stringEnd(next) + 1);
+            isValue = jsonString[afterNext] !== ':';
+          }
+          if (isValue) {
+            result += ':';
+            frame.state = 'value';
+            i++;
+            continue;
+          }
+        }
+        frame.state = 'key';
+      } else if (!/\s/.test(char)) {
+        valueDone();  // Number, true, false, null
+      }
+
+      result += char;
+      i++;
+    }
+
     return result;
   }
 

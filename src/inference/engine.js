@@ -13,8 +13,9 @@ export class InferenceEngine {
     this.config = {
       modelPath: config.modelPath || './models/nano-transformer.json',
       tokenizerPath: config.tokenizerPath || './models/tokenizer.json',
-      useAI: config.useAI !== false,
-      useSLM: config.useSLM !== false,
+      // Model is opt-in until retrained models give consistent results
+      useAI: config.useAI === true,
+      useSLM: config.useSLM === true,
       maxRetries: config.maxRetries || 1,
       slmMaxTokens: config.slmMaxTokens || 64,
       temperature: config.temperature || 0.7,
@@ -83,21 +84,26 @@ export class InferenceEngine {
       await this.initialize();
     }
 
-    // Prefer SLM path if enabled
-    if (useAI && this.config.useSLM && this.model) {
-      const slmResult = await this._slmFix(jsonString, 'json');
-      if (slmResult.success || !slmResult.canFallback) {
-        return slmResult;
-      }
-    }
-
-    // Fallback to rule-based (optionally AI if SLM disabled)
+    // Rule-based first (optionally AI if SLM disabled)
     const canUseAI = useAI && this.model && !this.config.useSLM;
-    return this.jsonParser.fix(jsonString, canUseAI ? {
+    const ruleResult = await this.jsonParser.fix(jsonString, canUseAI ? {
       useAI: true,
       model: this.model,
       tokenizer: this.tokenizer
     } : {});
+    if (ruleResult.success) {
+      return ruleResult;
+    }
+
+    // Fall back to SLM only when rules could not fix it
+    if (useAI && this.config.useSLM && this.model) {
+      const slmResult = await this._slmFix(jsonString, 'json');
+      if (slmResult.success) {
+        return slmResult;
+      }
+    }
+
+    return ruleResult;
   }
 
   /**
@@ -108,20 +114,26 @@ export class InferenceEngine {
       await this.initialize();
     }
 
-    // Prefer SLM path if enabled
-    if (useAI && this.config.useSLM && this.model) {
-      const slmResult = await this._slmFix(xmlString, 'xml');
-      if (slmResult.success || !slmResult.canFallback) {
-        return slmResult;
-      }
-    }
-
+    // Rule-based first (optionally AI if SLM disabled)
     const canUseAI = useAI && this.model && !this.config.useSLM;
-    return this.xmlParser.fix(xmlString, canUseAI ? {
+    const ruleResult = await this.xmlParser.fix(xmlString, canUseAI ? {
       useAI: true,
       model: this.model,
       tokenizer: this.tokenizer
     } : {});
+    if (ruleResult.success) {
+      return ruleResult;
+    }
+
+    // Fall back to SLM only when rules could not fix it
+    if (useAI && this.config.useSLM && this.model) {
+      const slmResult = await this._slmFix(xmlString, 'xml');
+      if (slmResult.success) {
+        return slmResult;
+      }
+    }
+
+    return ruleResult;
   }
 
   /**

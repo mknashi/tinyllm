@@ -99,7 +99,7 @@ import { InferenceEngine } from 'tinyllm';
 
 // Create engine instance
 const engine = new InferenceEngine({
-    useAI: true,  // Enable AI-powered fixing
+    useAI: true,  // Opt in to AI-powered fixing (off by default; experimental)
     modelPath: './models/nano-transformer.json',
     tokenizerPath: './models/tokenizer.json',
 });
