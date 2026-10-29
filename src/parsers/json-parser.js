@@ -211,7 +211,9 @@ export class JSONParser {
     let inString = false;
     let escapeNext = false;
     let pendingWhitespace = '';
-    let lastToken = '';  // Last significant token (, { [ } ] : etc)
+    let lastToken = '';  // Last significant token (, { [ } ] : etc, or 'v' for a bare value)
+    // A value just ended, so a new value or key here needs a comma
+    const needsComma = () => ['}', ']', '"', 'v'].includes(lastToken);
 
     for (let i = 0; i < jsonString.length; i++) {
       const char = jsonString[i];
@@ -234,7 +236,7 @@ export class JSONParser {
         if (!inString) {
           // Starting a string
           // Check if we need a comma before this string
-          if (lastToken === '}' || lastToken === ']' || lastToken === '"') {
+          if (needsComma()) {
             result += ',';
           }
           result += pendingWhitespace;
@@ -265,7 +267,7 @@ export class JSONParser {
       // Check for opening braces/brackets
       if (char === '{' || char === '[') {
         // Check if we need a comma before this
-        if (lastToken === '}' || lastToken === ']' || lastToken === '"') {
+        if (needsComma()) {
           result += ',';
         }
         result += pendingWhitespace;
@@ -294,9 +296,15 @@ export class JSONParser {
       }
 
       // Handle other characters (numbers, true, false, null)
+      // A bare value starts after whitespace or a structural token; otherwise it continues one
+      const startsValue = lastToken !== 'v' || pendingWhitespace !== '';
+      if (startsValue && needsComma()) {
+        result += ',';
+      }
       result += pendingWhitespace;
       pendingWhitespace = '';
       result += char;
+      lastToken = 'v';
     }
 
     result += pendingWhitespace;
