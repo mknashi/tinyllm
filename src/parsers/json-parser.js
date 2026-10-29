@@ -105,12 +105,12 @@ export class JSONParser {
       fixes.push('Added missing commas between properties');
     }
 
-    // Fix 6a: Replace comma used instead of colon after a key
-    // {"key", "value"} -> {"key": "value"} (runs after 6 so {"key" "value"} is covered too)
+    // Fix 6a: Replace comma used instead of colon after a key, or insert a missing one
+    // {"key", "value"} -> {"key": "value"}, {"key" 123} -> {"key": 123}
     const beforeColonFix = fixed;
     fixed = this._fixMissingColons(fixed);
     if (fixed !== beforeColonFix) {
-      fixes.push('Replaced commas with missing colons after keys');
+      fixes.push('Fixed missing colons after keys');
     }
 
     // Fix 7: Fix missing closing braces/brackets
@@ -304,7 +304,8 @@ export class JSONParser {
   }
 
   /**
-   * Replace a comma that follows an object key with a colon
+   * Replace a comma that follows an object key with a colon, or insert a
+   * colon when a value follows the key directly
    * Only applies when the next token is a value, not another key ("key": ...)
    */
   _fixMissingColons(jsonString) {
@@ -332,6 +333,15 @@ export class JSONParser {
     while (i < jsonString.length) {
       const char = jsonString[i];
       const frame = top();
+
+      // Value directly after a key with no separator: "key" 123 -> "key": 123
+      if (frame && frame.type === '{' && frame.state === 'colon' && !/[\s:,}]/.test(char)) {
+        const isKey = char === '"' && jsonString[skipWhitespace(stringEnd(i) + 1)] === ':';
+        if (!isKey) {
+          result = result.trimEnd() + ': ';
+          frame.state = 'value';
+        }
+      }
 
       if (char === '"') {
         const end = stringEnd(i);

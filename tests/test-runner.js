@@ -76,6 +76,11 @@ assertEquals(JSON.stringify(fixed5b.data), '{"count":5,"tags":["a","b"],"meta":{
 const fixed5c = jsonParser.fix('{"name" "Ada"}');
 assertEquals(JSON.stringify(fixed5c.data), '{"name":"Ada"}', 'Fix missing colon between key and value');
 
+// Test 6c2: Fix missing colon before non-string values
+const invalidJSON6 = '{\n  "name": "Johsn",\n  "phone" 123455,\n  "active" true,\n  "tags" ["a"],\n  "meta" {"x" null}\n}';
+const fixed5c2 = jsonParser.fix(invalidJSON6);
+assertEquals(JSON.stringify(fixed5c2.data), '{"name":"Johsn","phone":123455,"active":true,"tags":["a"],"meta":{"x":null}}', 'Fix missing colon before non-string values');
+
 // Test 6d: Commas inside strings and arrays are left alone
 const validJSON2 = '{"list": ["x", "y"], "text": "a, b"}';
 assertEquals(jsonParser.fix(validJSON2).fixed, validJSON2, 'Leave commas in arrays and strings unchanged');
