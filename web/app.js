@@ -12,7 +12,8 @@ let engineReady = false;
 const inputText = document.getElementById('inputText');
 const outputText = document.getElementById('outputText');
 const formatSelect = document.getElementById('formatSelect');
-const useAICheckbox = document.getElementById('useAI');
+const useSLMCheckbox = document.getElementById('useSLM');
+const useRulesCheckbox = document.getElementById('useRules');
 const fixBtn = document.getElementById('fixBtn');
 const validateBtn = document.getElementById('validateBtn');
 const prettifyBtn = document.getElementById('prettifyBtn');
@@ -88,7 +89,12 @@ async function initEngine() {
     aiStatus.textContent = 'Loading...';
 
     engine = TinyLLM.create({
-      useAI: false, // Disable AI by default for faster loading
+      useAI: useSLMCheckbox.checked, // Only load model when SLM is on
+      useSLM: useSLMCheckbox.checked,
+      slmMaxTokens: 64,
+      maxRetries: 1,
+      topP: 0.85,
+      temperature: 0.7,
     });
 
     const status = await engine.initialize();
@@ -163,16 +169,38 @@ fixBtn.addEventListener('click', async () => {
 
   try {
     const format = formatSelect.value;
-    const useAI = useAICheckbox.checked;
+    engine.config.useSLM = useSLMCheckbox.checked;
+
+    // SLM path requires the model to be loaded
+    engine.config.useAI = useSLMCheckbox.checked;
+    engine.config.slmMaxTokens = 64;
+    engine.config.maxRetries = 1;
+    engine.config.topP = 0.85;
+    engine.config.temperature = 0.7;
+    const allowRules = useRulesCheckbox.checked;
+    const needsModel = engine.config.useAI || engine.config.useSLM;
+
+    if (needsModel && (!engine.model || !engine.tokenizer)) {
+      await engine.initialize();
+    }
 
     let result;
-    if (format === 'auto') {
-      const autoResult = await engine.autoFix(input, useAI);
-      result = autoResult.result;
-    } else if (format === 'json') {
-      result = await engine.fixJSON(input, useAI);
+    const runSLMOnly = engine.config.useSLM && !allowRules;
+
+    if (runSLMOnly) {
+      const targetFormat = format === 'auto'
+        ? (input.trim().startsWith('<') ? 'xml' : 'json')
+        : format;
+      result = await engine._slmFix(input, targetFormat);
     } else {
-      result = await engine.fixXML(input, useAI);
+      if (format === 'auto') {
+        const autoResult = await engine.autoFix(input, useAI);
+        result = autoResult.result;
+      } else if (format === 'json') {
+        result = await engine.fixJSON(input, useAI);
+      } else {
+        result = await engine.fixXML(input, useAI);
+      }
     }
 
     if (result.success) {

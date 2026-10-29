@@ -31,6 +31,7 @@ export class NanoTransformer {
       positionEmbedding: this._randomMatrix(this.config.maxSeqLen, hiddenSize),
       layers: [],
       outputProjection: this._randomMatrix(hiddenSize, vocabSize),
+      outputBias: Array.from({ length: vocabSize }, () => 0),
     };
 
     // Initialize transformer layers
@@ -76,6 +77,9 @@ export class NanoTransformer {
       }
 
       this.weights = data.weights || data;
+      if (!this.weights.outputBias) {
+        this.weights.outputBias = Array.from({ length: this.config.vocabSize }, () => 0);
+      }
       this.initialized = true;
       return true;
     } catch (error) {
@@ -109,9 +113,10 @@ export class NanoTransformer {
     }
 
     // Project to vocabulary
-    const logits = hiddenStates.map(h =>
-      this._matmul(h, this.weights.outputProjection)
-    );
+    const logits = hiddenStates.map(h => {
+      const projected = this._matmul(h, this.weights.outputProjection);
+      return this._addVectors(projected, this.weights.outputBias);
+    });
 
     return logits;
   }

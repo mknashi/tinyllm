@@ -62,6 +62,24 @@ const invalidJSON4 = '{"name": "test", "nested": {"value": 123}';
 const fixed4 = jsonParser.fix(invalidJSON4);
 assert(fixed4.success, 'Fix missing closing braces');
 
+// Test 6a: Fix comma used instead of colon after a key
+const invalidJSON5 = '{"name": "Johsn",\n"address", "12345 Main St"}';
+const fixed5a = jsonParser.fix(invalidJSON5);
+assert(fixed5a.success, 'Fix comma used instead of colon');
+assertEquals(JSON.stringify(fixed5a.data), '{"name":"Johsn","address":"12345 Main St"}', 'Comma-for-colon fix preserves data');
+
+// Test 6b: Fix comma-for-colon with non-string and nested values
+const fixed5b = jsonParser.fix('{"count", 5, "tags", ["a", "b"], "meta", {"ok", true}}');
+assertEquals(JSON.stringify(fixed5b.data), '{"count":5,"tags":["a","b"],"meta":{"ok":true}}', 'Fix comma-for-colon with mixed values');
+
+// Test 6c: Fix missing colon entirely between key and value
+const fixed5c = jsonParser.fix('{"name" "Ada"}');
+assertEquals(JSON.stringify(fixed5c.data), '{"name":"Ada"}', 'Fix missing colon between key and value');
+
+// Test 6d: Commas inside strings and arrays are left alone
+const validJSON2 = '{"list": ["x", "y"], "text": "a, b"}';
+assertEquals(jsonParser.fix(validJSON2).fixed, validJSON2, 'Leave commas in arrays and strings unchanged');
+
 // Test 7: Validate JSON
 const validation1 = jsonParser.validate(validJSON);
 assert(validation1.valid, 'Validate valid JSON');
